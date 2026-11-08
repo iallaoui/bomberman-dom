@@ -1,4 +1,5 @@
 import http from 'node:http';
+import { randomUUID } from 'node:crypto';
 import { readFile } from 'node:fs/promises';
 import { extname, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -11,12 +12,15 @@ const colors = ['#e05252', '#4f8fe8', '#48a868', '#d49b35'];
 const waitDuration = Number(process.env.WAIT_MS) || 20_000;
 const countdownDuration = Number(process.env.COUNTDOWN_MS) || 10_000;
 const resultDuration = Number(process.env.RESULT_MS) || 8000;
+const reconnectDuration = Number(process.env.RECONNECT_MS) || 10_000;
 const gameOptions = {
     bombDuration: Number(process.env.BOMB_MS) || 2200,
     invulnerabilityDuration: Number(process.env.INVULNERABLE_MS) || 1800
 };
 
 const players = new Map();
+const sessions = new Map();
+const chatHistory = [];
 let phase = 'lobby';
 let waitDeadline = 0;
 let countdownDeadline = 0;
@@ -56,7 +60,7 @@ function send(socket, message) {
 function broadcast(message) {
     const payload = JSON.stringify(message);
     for (const player of players.values()) {
-        if (player.socket.readyState === WebSocket.OPEN) player.socket.send(payload);
+        if (player.socket?.readyState === WebSocket.OPEN) player.socket.send(payload);
     }
 }
 
@@ -100,6 +104,12 @@ function broadcastGame() {
     const snapshot = game.snapshot(includeMap);
     if (includeMap) sentMapVersion = game.mapVersion;
     broadcast({ type: 'game', game: snapshot });
+}
+
+function sendCurrentView(socket) {
+    send(socket, { type: 'chatHistory', messages: chatHistory });
+    if (phase === 'game' && game) send(socket, { type: 'game', game: game.snapshot(true) });
+    else send(socket, lobbyMessage());
 }
 
 function finishGame() {
@@ -149,8 +159,36 @@ setInterval(() => {
 }, 1000 / 60);
 
 sockets.on('connection', (socket) => {
-    const connectionId = `u${nextId++}`;
-    send(socket, { type: 'welcome', id: connectionId });
+    let connectionId;
+    let sessionToken;
+    let initialized = false;
+
+    function initialize(requestedToken) {
+        if (initialized) return;
+        initialized = true;
+        const resumedId = requestedToken && sessions.get(requestedToken);
+        const resumedPlayer = resumedId && players.get(resumedId);
+
+        if (resumedPlayer) {
+            connectionId = resumedPlayer.id;
+            sessionToken = requestedToken;
+            clearTimeout(resumedPlayer.disconnectTimer);
+            if (resumedPlayer.socket && resumedPlayer.socket !== socket) resumedPlayer.socket.close();
+            resumedPlayer.socket = socket;
+            resumedPlayer.disconnectTimer = null;
+            send(socket, { type: 'welcome', id: connectionId, sessionToken, resumed: true });
+            send(socket, { type: 'joined', nickname: resumedPlayer.nickname, resumed: true });
+            sendCurrentView(socket);
+            if (phase === 'lobby') broadcastLobby();
+            return;
+        }
+
+        if (requestedToken) sessions.delete(requestedToken);
+        connectionId = `u${nextId++}`;
+        sessionToken = randomUUID();
+        send(socket, { type: 'welcome', id: connectionId, sessionToken, resumed: false });
+        send(socket, { type: 'chatHistory', messages: chatHistory });
+    }
 
     socket.on('message', (raw) => {
         let message;
@@ -159,6 +197,12 @@ sockets.on('connection', (socket) => {
         } catch {
             return;
         }
+
+        if (message.type === 'hello') {
+            initialize(typeof message.sessionToken === 'string' ? message.sessionToken : null);
+            return;
+        }
+        if (!initialized) return;
 
         const current = players.get(connectionId);
         if (message.type === 'join') {
@@ -182,7 +226,17 @@ sockets.on('connection', (socket) => {
             }
             const usedSlots = new Set([...players.values()].map((player) => player.slot));
             const slot = [0, 1, 2, 3].find((value) => !usedSlots.has(value));
-            players.set(connectionId, { id: connectionId, nickname, color: colors[slot], slot, socket, lastChatAt: 0 });
+            players.set(connectionId, {
+                id: connectionId,
+                nickname,
+                color: colors[slot],
+                slot,
+                socket,
+                sessionToken,
+                disconnectTimer: null,
+                lastChatAt: 0
+            });
+            sessions.set(sessionToken, connectionId);
             send(socket, { type: 'joined', nickname });
             updateLobby();
             broadcastLobby();
@@ -194,10 +248,10 @@ sockets.on('connection', (socket) => {
             const text = String(message.text || '').trim().slice(0, 180);
             const now = Date.now();
             if (text && now - current.lastChatAt >= 250) {
-                broadcast({
-                    type: 'chat',
-                    message: { id: `m${nextId++}`, nickname: current.nickname, text }
-                });
+                const chatMessage = { id: `m${nextId++}`, nickname: current.nickname, text };
+                chatHistory.push(chatMessage);
+                if (chatHistory.length > 60) chatHistory.shift();
+                broadcast({ type: 'chat', message: chatMessage });
                 current.lastChatAt = now;
             }
         }
@@ -208,19 +262,26 @@ sockets.on('connection', (socket) => {
     });
 
     socket.on('close', () => {
-        if (!players.has(connectionId)) return;
-        players.delete(connectionId);
-        game?.removePlayer(connectionId);
-        if (phase === 'lobby' && players.size < 2) {
-            waitDeadline = 0;
-            countdownDeadline = 0;
-        }
-        if (phase === 'game' && game) {
-            if (game.update(0)) finishGame();
-            else broadcastGame();
-        } else {
-            broadcastLobby();
-        }
+        const player = players.get(connectionId);
+        if (!player || player.socket !== socket) return;
+        player.socket = null;
+        game?.setInput(connectionId, 0, 0);
+        player.disconnectTimer = setTimeout(() => {
+            if (player.socket || players.get(connectionId) !== player) return;
+            players.delete(connectionId);
+            sessions.delete(player.sessionToken);
+            game?.removePlayer(connectionId);
+            if (phase === 'lobby' && players.size < 2) {
+                waitDeadline = 0;
+                countdownDeadline = 0;
+            }
+            if (phase === 'game' && game) {
+                if (game.update(0)) finishGame();
+                else broadcastGame();
+            } else {
+                broadcastLobby();
+            }
+        }, reconnectDuration);
     });
 });
 

@@ -9,6 +9,7 @@ let joinRequest;
 let activePort;
 let latestMap;
 let socketUrl;
+let sessionToken;
 const chat = [];
 
 function broadcast(message) {
@@ -16,7 +17,10 @@ function broadcast(message) {
 }
 
 function remember(message) {
-    if (message.type === 'welcome') welcome = message;
+    if (message.type === 'welcome') {
+        welcome = message;
+        sessionToken = message.sessionToken;
+    }
     if (message.type === 'joined') joined = message;
     if (message.type === 'lobby') {
         view = message;
@@ -30,6 +34,10 @@ function remember(message) {
         chat.push(message);
         if (chat.length > 60) chat.shift();
     }
+    if (message.type === 'chatHistory') {
+        chat.length = 0;
+        for (const item of message.messages) chat.push({ type: 'chat', message: item });
+    }
 }
 
 function openSocket() {
@@ -40,6 +48,7 @@ function openSocket() {
 
     socket.addEventListener('open', () => {
         broadcast({ type: 'transport', connected: true });
+        socket.send(JSON.stringify({ type: 'hello', sessionToken }));
         if (joinRequest) socket.send(JSON.stringify(joinRequest));
     });
     socket.addEventListener('message', ({ data }) => {
@@ -76,6 +85,7 @@ self.onconnect = ({ ports: [port] }) => {
     port.addEventListener('message', ({ data }) => {
         if (data?.type === 'connect') {
             socketUrl = data.socketUrl;
+            sessionToken ||= data.sessionToken;
             openSocket();
             return;
         }

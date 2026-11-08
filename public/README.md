@@ -41,17 +41,20 @@ Open `http://localhost:8086` in two to four different browsers or private/isolat
 
 ```text
 public/
-  index.html        browser entry
-  app.js            screens, chat, input, and DOM game rendering
-  style.css         fixed-board and interface styles
-  framework/        DOM diffing, state, events, and routing
-  network/          shared browser connection and WebSocket worker
-server/
-  index.js          HTTP, WebSocket, lobby, and chat
-  game.js           authoritative game rules and simulation
+  index.html          browser entry
+  app.js              small application coordinator
+  components/         shared chat UI
+  screens/            join, lobby, and game rendering/input
+  style.css           fixed-board and interface styles
+  mini-framework/     DOM diffing, state, events, and routing
+  network/            shared browser connection and WebSocket worker
+  game/index.js       HTTP, WebSocket, lobby, chat, and sessions
+  game/game.js        authoritative game rules and simulation
 ```
 
 The server simulates movement at 60 ticks per second and sends snapshots at about 20 updates per second. The client uses one `requestAnimationFrame` loop with continuous position smoothing and compositor-friendly `translate3d`. It caches player elements and the static tile layer, re-renders only structural changes, and sends the map again only when a block changes.
+
+The server retains the latest 60 chat messages. It also gives joined players an opaque browser session token and keeps disconnected players for a 10-second grace period, allowing refreshes and short network interruptions to resume the same player.
 
 ## Audit notes
 
