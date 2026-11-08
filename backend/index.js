@@ -6,7 +6,7 @@ import { fileURLToPath } from 'node:url';
 import { WebSocket, WebSocketServer } from 'ws';
 import { GameEngine } from './game.js';
 
-const publicRoot = fileURLToPath(new URL('../', import.meta.url));
+const frontendRoot = fileURLToPath(new URL('../frontend/', import.meta.url));
 const port = Number(process.env.PORT) || 8086;
 const colors = ['#e05252', '#4f8fe8', '#48a868', '#d49b35'];
 const waitDuration = Number(process.env.WAIT_MS) || 20_000;
@@ -39,8 +39,8 @@ const types = {
 const server = http.createServer(async (request, response) => {
     const pathname = new URL(request.url, `http://${request.headers.host}`).pathname;
     const relative = pathname === '/' ? 'index.html' : decodeURIComponent(pathname.slice(1));
-    const filename = resolve(publicRoot, relative);
-    if (!filename.startsWith(publicRoot)) return response.writeHead(403).end('Forbidden');
+    const filename = resolve(frontendRoot, relative);
+    if (!filename.startsWith(frontendRoot)) return response.writeHead(403).end('Forbidden');
 
     try {
         const file = await readFile(filename);

@@ -11,9 +11,9 @@ npm install
 npm start
 ```
 
-Open `http://localhost:8086` in two to four different browsers, browser profiles, or private/isolated sessions. Normal tabs in the same browser profile share one connection and player through a `SharedWorker`. Each player must choose a different nickname.
+Open `http://localhost:8086` in two to four tabs or browser windows. Each tab has its own connection and player, and each player must choose a different nickname.
 
-When changing browser code, hard-refresh the page. Closing all game tabs first ensures an older shared worker is no longer running.
+When changing browser code, hard-refresh the page.
 
 ## Configuration
 
@@ -62,16 +62,17 @@ PORT=9000 WAIT_MS=5000 npm start
 ## Architecture
 
 ```text
-public/
+frontend/
   index.html          browser entry
   app.js              small application coordinator
   components/         shared chat UI
-  screens/            join, lobby, and game rendering/input
+  screens/            join/lobby UI, game UI, input, and interpolation
   style.css           fixed-board and interface styles
   mini-framework/     DOM diffing, state, events, and routing
-  network/            shared browser connection and WebSocket worker
-  game/index.js       HTTP, WebSocket, lobby, chat, and sessions
-  game/game.js        authoritative game rules and simulation
+  network/            per-tab browser WebSocket connection
+backend/
+  index.js            HTTP, WebSocket, lobby, chat, and sessions
+  game.js             authoritative game rules and simulation
 ```
 
 The server simulates movement at 60 ticks per second and sends snapshots at about 20 updates per second. It is authoritative: clients send input, but the server decides positions and game outcomes.

@@ -1,3 +1,4 @@
+// Authoritative server-side game simulation.
 export const columns = 15;
 export const rows = 13;
 export const spawns = [[1, 1], [columns - 2, 1], [1, rows - 2], [columns - 2, rows - 2]];

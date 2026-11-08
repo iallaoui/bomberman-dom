@@ -81,14 +81,11 @@ store.subscribe((state) => {
 const events = new Events(root);
 events.init(['click', 'submit', 'keydown', 'keyup', 'blur']);
 events.listen(window, 'blur', gameScreen.releaseMovement);
-events.listen(window, 'focus', () => connection?.activate());
-events.listen(window, 'pagehide', () => connection?.detach());
 events.listen(document, 'visibilitychange', () => {
     if (document.hidden) {
         gameScreen.releaseMovement();
         return;
     }
-    connection?.activate();
     if (store.getState().game) gameScreen.refreshMovement();
 });
 
@@ -96,6 +93,5 @@ render(App(store.getState()), root);
 router.start();
 connection = createConnection(
     handleMessage,
-    (connected) => store.setState({ connected, error: connected ? '' : 'Reconnecting…' })
+    (connected) => store.setState({ connected, error: connected ? '' : 'Disconnected.' })
 );
-if (!document.hidden) connection.activate();
