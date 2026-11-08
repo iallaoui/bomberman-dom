@@ -185,18 +185,47 @@ export class GameEngine {
         return true;
     }
 
+    tileBlocked(x, y) {
+        return this.state.map[Math.floor(y)]?.[Math.floor(x)] !== 'floor';
+    }
+
+    moveAxisWithSlide(player, axis, amount) {
+        if (!amount || this.moveAxis(player, axis, amount)) return Boolean(amount);
+
+        const slide = Math.abs(amount);
+        if (axis === 'x') {
+            const leadingX = player.x + (amount > 0 ? .82 : .18) + amount;
+            const topBlocked = this.tileBlocked(leadingX, player.y + .18);
+            const bottomBlocked = this.tileBlocked(leadingX, player.y + .82);
+            if (topBlocked === bottomBlocked) return false;
+            return this.moveAxis(player, 'y', topBlocked ? slide : -slide);
+        }
+
+        const leadingY = player.y + (amount > 0 ? .82 : .18) + amount;
+        const leftBlocked = this.tileBlocked(player.x + .18, leadingY);
+        const rightBlocked = this.tileBlocked(player.x + .82, leadingY);
+        if (leftBlocked === rightBlocked) return false;
+        return this.moveAxis(player, 'x', leftBlocked ? slide : -slide);
+    }
+
     movePlayers(delta) {
         const game = this.state;
         for (const player of Object.values(game.players)) {
             if (!player.active) continue;
             let { x, y } = player.input;
-            if (x && y) {
+            const diagonal = Boolean(x && y);
+            if (diagonal) {
                 x *= Math.SQRT1_2;
                 y *= Math.SQRT1_2;
             }
             const distance = player.speed * delta;
-            this.moveAxis(player, 'x', x * distance);
-            this.moveAxis(player, 'y', y * distance);
+            if (diagonal) {
+                this.moveAxis(player, 'x', x * distance);
+                this.moveAxis(player, 'y', y * distance);
+            } else {
+                this.moveAxisWithSlide(player, 'x', x * distance);
+                this.moveAxisWithSlide(player, 'y', y * distance);
+            }
             for (const bomb of game.bombs) {
                 if (bomb.ownerId === player.id && bomb.ownerCanPass && !this.overlapsBomb(player.x, player.y, bomb)) {
                     bomb.ownerCanPass = false;

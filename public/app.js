@@ -18,17 +18,30 @@ const store = createStore({
 const pressed = new Set();
 const displayPositions = new Map();
 const playerElements = new Map();
+const tileStyles = new Map();
+const tileVNodes = new Map();
+const powerupVNodes = new Map();
+const bombVNodes = new Map();
+const flameVNodes = new Map();
+const playerVNodes = new Map();
+const hudVNodes = new Map();
 const movementKeys = new Set(['ArrowLeft', 'ArrowRight', 'ArrowUp', 'ArrowDown', 'KeyA', 'KeyD', 'KeyW', 'KeyS']);
-const powerupLabels = { bomb: '💣', flame: '🔥', speed: '⚡' };
+const powerupLabels = { bomb: 'B', flame: 'F', speed: 'S' };
 const screenPaths = { join: '/', lobby: '/lobby', game: '/game' };
+const gameHeaderVNode = h('header', { className: 'game-header' },
+    h('div', {}, h('h1', { className: 'game-title' }, 'Bomberman'), h('span', {}, 'Arrows / WASD to move · Space to bomb'))
+);
 let cachedMap;
 let cachedTiles;
+let cachedChatMessages;
+let cachedChatVNode;
 let connection;
 let frameQueued = false;
 let gameRenderPending = false;
 let gameFocusPending = false;
 let movementPending = false;
 let latestGame;
+let pendingGame;
 let lastViewVersion = -1;
 let lastMovement = '';
 
@@ -48,15 +61,24 @@ function send(message) {
     connection?.send(message);
 }
 
+function clearGameVNodeCaches() {
+    powerupVNodes.clear();
+    bombVNodes.clear();
+    playerVNodes.clear();
+    hudVNodes.clear();
+}
+
 function handleMessage(message) {
     if (message.type === 'welcome') store.setState({ id: message.id });
     if (message.type === 'joined') store.setState({ screen: 'lobby', error: '' });
     if (message.type === 'lobby') {
         latestGame = null;
+        pendingGame = null;
         movementPending = false;
         lastViewVersion = -1;
         displayPositions.clear();
         playerElements.clear();
+        clearGameVNodeCaches();
         store.setState({ screen: 'lobby', lobby: message, game: null });
     }
     if (message.type === 'chat') {
@@ -68,28 +90,33 @@ function handleMessage(message) {
 
 function queueGame(game) {
     if (!game.map) {
-        game.map = latestGame?.map || store.getState().game?.map;
+        game.map = pendingGame?.map || latestGame?.map || store.getState().game?.map;
     }
+    pendingGame = game;
+    queueFrame();
+}
 
+function applyPendingGame() {
+    const game = pendingGame;
+    pendingGame = null;
     latestGame = game;
 
+    let playerMoved = false;
     for (const player of Object.values(game.players)) {
         if (!displayPositions.has(player.id)) {
             displayPositions.set(player.id, {
                 x: player.x,
                 y: player.y
             });
+            continue;
         }
-    }
-
-    const playerMoved = Object.values(game.players).some((player) => {
         const position = displayPositions.get(player.id);
         const dx = player.x - position.x;
         const dy = player.y - position.y;
-        return dx * dx + dy * dy >= 0.000001;
-    });
+        if (dx * dx + dy * dy >= 0.000001) playerMoved = true;
+    }
 
-    if (playerMoved) queueMovementFrame();
+    if (playerMoved) movementPending = true;
 
     const entering = store.getState().screen !== 'game';
 
@@ -97,7 +124,6 @@ function queueGame(game) {
         lastViewVersion = game.viewVersion;
         gameRenderPending = true;
         gameFocusPending ||= entering;
-        queueFrame();
     }
 }
 
@@ -128,7 +154,9 @@ function gameKey(event, down) {
 }
 
 function Chat(messages) {
-    return h('section', { className: 'chat' },
+    if (messages === cachedChatMessages) return cachedChatVNode;
+    cachedChatMessages = messages;
+    cachedChatVNode = h('section', { className: 'chat' },
         h('h2', {}, 'Chat'),
         h('div', { className: 'messages', 'aria-live': 'polite' },
             messages.length
@@ -161,6 +189,7 @@ function Chat(messages) {
             h('button', { type: 'submit' }, 'Send')
         )
     );
+    return cachedChatVNode;
 }
 
 function Join(state) {
@@ -213,21 +242,106 @@ function playerStyle(player) {
 }
 
 function tileStyle(x, y) {
-    return { left: `${x * 100 / 15}%`, top: `${y * 100 / 13}%` };
+    const key = `${x}-${y}`;
+    let style = tileStyles.get(key);
+    if (!style) {
+        style = { left: `${x * 100 / 15}%`, top: `${y * 100 / 13}%` };
+        tileStyles.set(key, style);
+    }
+    return style;
 }
 
 function Tiles(map) {
     if (map !== cachedMap) {
         cachedMap = map;
         cachedTiles = h('div', { className: 'tiles' }, map.flatMap((row, y) => row.flatMap((tile, x) => (
-            tile === 'floor' ? [] : [h('div', {
-                key: `${x}-${y}`,
-                className: `tile ${tile}`,
-                style: tileStyle(x, y)
-            })]
+            tile === 'floor' ? [] : [tileVNode(tile, x, y)]
         ))));
     }
     return cachedTiles;
+}
+
+function tileVNode(tile, x, y) {
+    const key = `${x}-${y}`;
+    const cached = tileVNodes.get(key);
+    if (cached?.tile === tile) return cached.vnode;
+    const vnode = h('div', {
+        key,
+        className: `tile ${tile}`,
+        style: tileStyle(x, y)
+    });
+    tileVNodes.set(key, { tile, vnode });
+    return vnode;
+}
+
+function cachedVNode(cache, key, signature, create) {
+    const cached = cache.get(key);
+    if (cached?.signature === signature) return cached.vnode;
+    const vnode = create();
+    cache.set(key, { signature, vnode });
+    return vnode;
+}
+
+function pruneVNodeCache(cache, activeKeys) {
+    for (const key of cache.keys()) {
+        if (!activeKeys.has(key)) cache.delete(key);
+    }
+}
+
+function Powerup(item) {
+    const signature = `${item.type}|${item.x}|${item.y}`;
+    return cachedVNode(powerupVNodes, item.id, signature, () => h('div', {
+        key: item.id,
+        className: `entity powerup powerup-${item.type}`,
+        style: tileStyle(item.x, item.y)
+    }, powerupLabels[item.type]));
+}
+
+function Bomb(bomb) {
+    const signature = `${bomb.x}|${bomb.y}`;
+    return cachedVNode(bombVNodes, bomb.id, signature, () => h('div', {
+        key: bomb.id,
+        className: 'entity bomb-wrap',
+        style: tileStyle(bomb.x, bomb.y)
+    }, h('span', { className: 'bomb' })));
+}
+
+function Flame(key, cell) {
+    let vnode = flameVNodes.get(key);
+    if (!vnode) {
+        vnode = h('div', {
+            key,
+            className: 'entity explosion',
+            style: tileStyle(cell.x, cell.y)
+        });
+        flameVNodes.set(key, vnode);
+    }
+    return vnode;
+}
+
+function Player(player, now) {
+    const invulnerable = player.invulnerableUntil > now;
+    const signature = `${player.active}|${invulnerable}|${player.color}|${player.nickname}`;
+    return cachedVNode(playerVNodes, player.id, signature, () => h('div', {
+        key: player.id,
+        'data-player-id': player.id,
+        className: `entity player ${player.active ? '' : 'eliminated'} ${invulnerable ? 'invulnerable' : ''}`,
+        style: playerStyle(player)
+    }, h('span', { style: { backgroundColor: player.color } }, player.nickname.slice(0, 2).toUpperCase())));
+}
+
+function HudPlayer(player, currentPlayerId) {
+    const isCurrentPlayer = player.id === currentPlayerId;
+    const signature = `${isCurrentPlayer}|${player.active}|${player.lives}|${player.bombLimit}|${player.range}|${player.speed}|${player.color}|${player.nickname}`;
+    return cachedVNode(hudVNodes, player.id, signature, () => h('article', {
+        key: player.id,
+        className: isCurrentPlayer ? 'is-you' : ''
+    },
+        h('span', { className: 'player-dot', style: { backgroundColor: player.color } }),
+        h('strong', {}, player.nickname),
+        h('span', {}, player.active ? `${'♥'.repeat(player.lives)}${'♡'.repeat(3 - player.lives)}` : 'OUT'),
+        h('small', {}, `B${player.bombLimit} · F${player.range} · S${player.speed.toFixed(1)}`)
+    ));
 }
 
 function Game(state) {
@@ -239,6 +353,14 @@ function Game(state) {
     for (const explosion of game.explosions) {
         for (const cell of explosion.cells) flameCells.set(`${cell.x}-${cell.y}`, cell);
     }
+    const players = Object.values(game.players);
+    const powerupKeys = new Set(game.powerups.map((item) => item.id));
+    const bombKeys = new Set(game.bombs.map((bomb) => bomb.id));
+    const playerKeys = new Set(players.map((player) => player.id));
+    pruneVNodeCache(powerupVNodes, powerupKeys);
+    pruneVNodeCache(bombVNodes, bombKeys);
+    pruneVNodeCache(playerVNodes, playerKeys);
+    pruneVNodeCache(hudVNodes, playerKeys);
 
     return h('main', {
         className: 'game-shell',
@@ -248,9 +370,7 @@ function Game(state) {
         onBlur: () => { pressed.clear(); sendMovement(); }
     },
         h('section', { className: 'play-column' },
-            h('header', { className: 'game-header' },
-                h('div', {}, h('h1', { className: 'game-title' }, 'Bomberman'), h('span', {}, 'Arrows / WASD to move · Space to bomb'))
-            ),
+            gameHeaderVNode,
             h('div', {
                 className: 'board',
                 onClick: () => document.querySelector('.game-shell')?.focus(),
@@ -259,38 +379,13 @@ function Game(state) {
             },
                 Tiles(game.map),
                 h('div', { className: 'entities' },
-                    game.powerups.map((item) => h('div', {
-                        key: item.id,
-                        className: `entity powerup powerup-${item.type}`,
-                        style: tileStyle(item.x, item.y)
-                    }, powerupLabels[item.type])),
-                    game.bombs.map((bomb) => h('div', {
-                        key: bomb.id,
-                        className: 'entity bomb-wrap',
-                        style: tileStyle(bomb.x, bomb.y)
-                    }, h('span', { className: 'bomb' }))),
-                    [...flameCells].map(([key, cell]) => h('div', {
-                        key,
-                        className: 'entity explosion',
-                        style: tileStyle(cell.x, cell.y)
-                    })),
-                    Object.values(game.players).map((player) => h('div', {
-                        key: player.id,
-                        'data-player-id': player.id,
-                        className: `entity player ${player.active ? '' : 'eliminated'} ${player.invulnerableUntil > game.now ? 'invulnerable' : ''}`,
-                        style: playerStyle(player)
-                    }, h('span', { style: { backgroundColor: player.color } }, player.nickname.slice(0, 2).toUpperCase())))
+                    game.powerups.map(Powerup),
+                    game.bombs.map(Bomb),
+                    [...flameCells].map(([key, cell]) => Flame(key, cell)),
+                    players.map((player) => Player(player, game.now))
                 )
             ),
-            h('div', { className: 'hud' }, Object.values(game.players).map((player) => h('article', {
-                key: player.id,
-                className: player.id === state.id ? 'is-you' : ''
-            },
-                h('span', { className: 'player-dot', style: { backgroundColor: player.color } }),
-                h('strong', {}, player.nickname),
-                h('span', {}, player.active ? `${'♥'.repeat(player.lives)}${'♡'.repeat(3 - player.lives)}` : 'OUT'),
-                h('small', {}, `B${player.bombLimit} · F${player.range} · S${player.speed.toFixed(1)}`)
-            ))),
+            h('div', { className: 'hud' }, players.map((player) => HudPlayer(player, state.id))),
             me && !me.active && h('p', { className: 'notice' }, 'You are out. You can still use the chat.'),
             game.winner && h('div', { className: 'result', role: 'status' },
                 h('h2', {}, winner ? `${winner.nickname} wins` : 'Draw'),
@@ -350,6 +445,8 @@ function queueFrame() {
 function runFrame() {
     frameQueued = false;
 
+    if (pendingGame) applyPendingGame();
+
     if (gameRenderPending) {
         gameRenderPending = false;
 
@@ -400,7 +497,7 @@ function runFrame() {
         document.querySelector('.game-shell')?.focus();
     }
 
-    if (gameRenderPending || gameFocusPending || movementPending) {
+    if (pendingGame || gameRenderPending || gameFocusPending || movementPending) {
         queueFrame();
     }
 }

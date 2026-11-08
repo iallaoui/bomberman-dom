@@ -23,16 +23,6 @@ button { cursor: pointer; }
 
 .join-panel { width: min(100%, 420px); padding: 30px; }
 .join-panel h1, .lobby-panel h1 { margin: 4px 0 12px; font-size: 2.2rem; }
-.game-title {
-    display: inline-block;
-    animation: floatTitle 2.7s ease-in-out infinite;
-    will-change: transform;
-}
-
-@keyframes floatTitle {
-    0%, 100% { transform: translate3d(0, -2px, 0); }
-    50% { transform: translate3d(0, 2px, 0); }
-}
 .join-panel form { display: grid; gap: 8px; margin-top: 24px; }
 .join-panel label { font-weight: bold; }
 .join-panel input, .chat input {
@@ -99,10 +89,31 @@ button:disabled { cursor: default; opacity: .55; }
 .game-header h1 { margin: 0 12px 0 0; font-size: 1.2rem; }
 .game-header div { display: flex; align-items: center; }
 .game-header span { color: #555; font-size: .8rem; }
+.game-header::after {
+    margin-left: auto;
+    padding: 3px 7px;
+    border-radius: 999px;
+    color: #fff;
+    background: #2f633c;
+    content: "LIVE";
+    contain: paint;
+    font-size: .65rem;
+    font-weight: bold;
+    letter-spacing: .08em;
+    opacity: .6;
+    transform: translateZ(0);
+    will-change: opacity;
+    animation: live-indicator 1.6s linear infinite alternate;
+}
+
+@keyframes live-indicator {
+    to { opacity: 1; }
+}
 .board {
     position: relative;
     width: min(100%, 780px, calc((100vh - 180px) * 15 / 13));
     aspect-ratio: 15 / 13;
+    contain: layout paint;
     overflow: hidden;
     border: 3px solid #202020;
     background: #d7caa6;
@@ -120,6 +131,7 @@ button:disabled { cursor: default; opacity: .55; }
     left: 0;
     width: calc(100% / 15);
     height: calc(100% / 13);
+    contain: layout paint style;
     display: grid;
     place-items: center;
 }
