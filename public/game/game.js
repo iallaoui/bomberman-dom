@@ -127,7 +127,7 @@ export class GameEngine {
                 invulnerableUntil: player.invulnerableUntil
             }])),
             bombs: game.bombs.map(({ id, x, y }) => ({ id, x, y })),
-            explosions: game.exploasions.map(({ id, cells }) => ({ id, cells })),
+            explosions: game.explosions.map(({ id, cells }) => ({ id, cells })),
             powerups: game.powerups,
             winner: game.winner,
             now: Date.now()

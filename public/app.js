@@ -1,7 +1,7 @@
-import { h, render } from './framework/dom.js';
-import { Events } from './framework/event.js';
-import Router from './framework/router.js';
-import { createStore } from './framework/state.js';
+import { h, render } from './mini-framework/dom.js';
+import { Events } from './mini-framework/event.js';
+import Router from './mini-framework/router.js';
+import { createStore } from './mini-framework/state.js';
 import { createConnection } from './network/connection.js';
 
 const root = document.querySelector('#root');
@@ -19,12 +19,15 @@ const pressed = new Set();
 const displayPositions = new Map();
 const playerElements = new Map();
 const movementKeys = new Set(['ArrowLeft', 'ArrowRight', 'ArrowUp', 'ArrowDown', 'KeyA', 'KeyD', 'KeyW', 'KeyS']);
-const powerupLabels = { bomb: 'B', flame: 'F', speed: 'S' };
+const powerupLabels = { bomb: '💣', flame: '🔥', speed: '⚡' };
 const screenPaths = { join: '/', lobby: '/lobby', game: '/game' };
 let cachedMap;
 let cachedTiles;
 let connection;
-let gameFrameQueued = false;
+let frameQueued = false;
+let gameRenderPending = false;
+let gameFocusPending = false;
+let movementPending = false;
 let latestGame;
 let lastViewVersion = -1;
 let lastRafTime = performance.now();
@@ -51,6 +54,7 @@ function handleMessage(message) {
     if (message.type === 'joined') store.setState({ screen: 'lobby', error: '' });
     if (message.type === 'lobby') {
         latestGame = null;
+        movementPending = false;
         lastViewVersion = -1;
         displayPositions.clear();
         playerElements.clear();
@@ -71,20 +75,16 @@ function queueGame(game) {
             displayPositions.set(player.id, { x: player.x, y: player.y });
         }
     }
+    if (Object.values(game.players).some((player) => {
+        const position = displayPositions.get(player.id);
+        return Math.hypot(player.x - position.x, player.y - position.y) >= .001;
+    })) queueMovementFrame();
     const entering = store.getState().screen !== 'game';
     if (!entering && game.viewVersion === lastViewVersion) return;
     lastViewVersion = game.viewVersion;
-    if (gameFrameQueued) return;
-    gameFrameQueued = true;
-    requestAnimationFrame(() => {
-        gameFrameQueued = false;
-        store.setState({ screen: 'game', game: latestGame });
-        playerElements.clear();
-        for (const element of document.querySelectorAll('[data-player-id]')) {
-            playerElements.set(element.dataset.playerId, element);
-        }
-        if (entering) requestAnimationFrame(() => document.querySelector('.game-shell')?.focus());
-    });
+    gameRenderPending = true;
+    gameFocusPending ||= entering;
+    queueFrame();
 }
 
 function sendMovement() {
@@ -132,7 +132,8 @@ function Chat(messages) {
                 send({ type: 'chat', text });
                 input.value = '';
                 if (store.getState().screen === 'game') {
-                    requestAnimationFrame(() => document.querySelector('.game-shell')?.focus());
+                    gameFocusPending = true;
+                    queueFrame();
                 }
             }
         },
@@ -177,7 +178,8 @@ function Lobby(state) {
 
     return h('main', { className: 'lobby-page' },
         h('section', { className: 'lobby-panel' },
-            h('h1', {}, `${players.length} / 4 players`),
+            h('h1', { className: 'bomberman-title' }, 'Bomberman'),
+            h('h2', { className: 'lobby-count' }, `${players.length} / 4 players`),
             h('p', { className: countdownMs !== null ? 'countdown' : 'muted' }, status),
             h('ul', { className: 'player-list' }, players.map((player) => h('li', { key: player.id },
                 h('span', { className: 'player-dot', style: { backgroundColor: player.color } }),
@@ -231,7 +233,7 @@ function Game(state) {
     },
         h('section', { className: 'play-column' },
             h('header', { className: 'game-header' },
-                h('div', {}, h('strong', {}, 'Bomberman'), h('span', {}, 'Arrows / WASD to move · Space to bomb'))
+                h('div', {}, h('h1', { className: 'bomberman-title' }, 'Bomberman'), h('span', {}, 'Arrows / WASD to move · Space to bomb'))
             ),
             h('div', {
                 className: 'board',
@@ -309,6 +311,7 @@ events.listen(document, 'visibilitychange', () => {
     }
     connection?.activate();
     lastRafTime = performance.now();
+    if (latestGame) queueMovementFrame();
 });
 render(App(store.getState()), root);
 router.start();
@@ -318,9 +321,34 @@ connection = createConnection(
 );
 if (!document.hidden) connection.activate();
 
-function animationFrame(now) {
+function queueMovementFrame() {
+    movementPending = true;
+    queueFrame();
+}
+
+function queueFrame() {
+    if (frameQueued) return;
+    frameQueued = true;
+    requestAnimationFrame(runFrame);
+}
+
+function runFrame(now) {
+    frameQueued = false;
+    if (gameRenderPending) {
+        gameRenderPending = false;
+        store.setState({ screen: 'game', game: latestGame });
+        playerElements.clear();
+        for (const element of document.querySelectorAll('[data-player-id]')) {
+            playerElements.set(element.dataset.playerId, element);
+        }
+    }
+
     const elapsed = Math.min(50, Math.max(0, now - lastRafTime));
     lastRafTime = now;
+    let keepAnimating = false;
+    if (movementPending) {
+        movementPending = false;
+    }
     if (latestGame) {
         const blend = 1 - Math.exp(-elapsed / 35);
         for (const player of Object.values(latestGame.players)) {
@@ -332,6 +360,12 @@ function animationFrame(now) {
             } else {
                 position.x += (player.x - position.x) * blend;
                 position.y += (player.y - position.y) * blend;
+                if (Math.hypot(player.x - position.x, player.y - position.y) < .001) {
+                    position.x = player.x;
+                    position.y = player.y;
+                } else {
+                    keepAnimating = true;
+                }
             }
             displayPositions.set(player.id, position);
             const element = playerElements.get(player.id);
@@ -339,7 +373,11 @@ function animationFrame(now) {
             if (element && element.style.transform !== transform) element.style.transform = transform;
         }
     }
+    movementPending ||= keepAnimating;
 
-    requestAnimationFrame(animationFrame);
+    if (gameFocusPending) {
+        gameFocusPending = false;
+        document.querySelector('.game-shell')?.focus();
+    }
+    if (gameRenderPending || gameFocusPending || movementPending) queueFrame();
 }
-requestAnimationFrame(animationFrame);

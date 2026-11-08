@@ -1,0 +1,12 @@
+{
+  "name": "bomberman-dom",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "start": "node public/game/index.js"
+  },
+  "dependencies": {
+    "ws": "^8.18.3"
+  }
+}

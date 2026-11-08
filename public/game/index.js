@@ -3,13 +3,13 @@ import { readFile } from 'node:fs/promises';
 import { extname, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { WebSocket, WebSocketServer } from 'ws';
-import { GameEngine } from '../../server/game.js';
+import { GameEngine } from './game.js';
 
-const publicRoot = fileURLToPath(new URL('../public/', import.meta.url));
+const publicRoot = fileURLToPath(new URL('../', import.meta.url));
 const port = Number(process.env.PORT) || 8086;
 const colors = ['#e05252', '#4f8fe8', '#48a868', '#d49b35'];
-const waitDuration = Number(process.env.WAIT_MS) || 20_000;
-const countdownDuration = Number(process.env.COUNTDOWN_MS) || 10_000;
+const waitDuration = Number(process.env.WAIT_MS) || 1_000;
+const countdownDuration = Number(process.env.COUNTDOWN_MS) || 1_000;
 const resultDuration = Number(process.env.RESULT_MS) || 8000;
 const gameOptions = {
     bombDuration: Number(process.env.BOMB_MS) || 2200,

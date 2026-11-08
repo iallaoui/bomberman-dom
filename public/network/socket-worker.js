@@ -8,6 +8,7 @@ let view;
 let joinRequest;
 let activePort;
 let latestMap;
+let socketUrl;
 const chat = [];
 
 function broadcast(message) {
@@ -32,10 +33,10 @@ function remember(message) {
 }
 
 function openSocket() {
+    if (!socketUrl) return;
     if (socket && socket.readyState <= WebSocket.OPEN) return;
     clearTimeout(reconnectTimer);
-    const protocol = self.location.protocol === 'https:' ? 'wss:' : 'ws:';
-    socket = new WebSocket(`${protocol}//${self.location.host}`);
+    socket = new WebSocket(socketUrl);
 
     socket.addEventListener('open', () => {
         broadcast({ type: 'transport', connected: true });
@@ -74,6 +75,7 @@ self.onconnect = ({ ports: [port] }) => {
 
     port.addEventListener('message', ({ data }) => {
         if (data?.type === 'connect') {
+            socketUrl = data.socketUrl;
             openSocket();
             return;
         }
