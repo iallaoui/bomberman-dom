@@ -23,14 +23,15 @@ button { cursor: pointer; }
 
 .join-panel { width: min(100%, 420px); padding: 30px; }
 .join-panel h1, .lobby-panel h1 { margin: 4px 0 12px; font-size: 2.2rem; }
-.bomberman-title {
+.game-title {
     display: inline-block;
-    transform-origin: center;
-    animation: bomberman-pulse 1.35s ease-in-out infinite alternate;
+    animation: floatTitle 2.7s ease-in-out infinite;
+    will-change: transform;
 }
-@keyframes bomberman-pulse {
-    from { transform: scale(.92); }
-    to { transform: scale(1.08); }
+
+@keyframes floatTitle {
+    0%, 100% { transform: translate3d(0, -2px, 0); }
+    50% { transform: translate3d(0, 2px, 0); }
 }
 .join-panel form { display: grid; gap: 8px; margin-top: 24px; }
 .join-panel label { font-weight: bold; }
@@ -123,7 +124,11 @@ button:disabled { cursor: default; opacity: .55; }
     place-items: center;
 }
 
-.player { z-index: 4; will-change: transform; }
+.player {
+    z-index: 4;
+    transition: transform 50ms linear, opacity 160ms ease;
+    will-change: transform;
+}
 .player span {
     width: 72%;
     height: 72%;

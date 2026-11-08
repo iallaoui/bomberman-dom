@@ -30,7 +30,6 @@ let gameFocusPending = false;
 let movementPending = false;
 let latestGame;
 let lastViewVersion = -1;
-let lastRafTime = performance.now();
 let lastMovement = '';
 
 function syncRoute(screen) {
@@ -68,23 +67,38 @@ function handleMessage(message) {
 }
 
 function queueGame(game) {
-    if (!game.map) game.map = latestGame?.map || store.getState().game?.map;
+    if (!game.map) {
+        game.map = latestGame?.map || store.getState().game?.map;
+    }
+
     latestGame = game;
+
     for (const player of Object.values(game.players)) {
         if (!displayPositions.has(player.id)) {
-            displayPositions.set(player.id, { x: player.x, y: player.y });
+            displayPositions.set(player.id, {
+                x: player.x,
+                y: player.y
+            });
         }
     }
-    if (Object.values(game.players).some((player) => {
+
+    const playerMoved = Object.values(game.players).some((player) => {
         const position = displayPositions.get(player.id);
-        return Math.hypot(player.x - position.x, player.y - position.y) >= .001;
-    })) queueMovementFrame();
+        const dx = player.x - position.x;
+        const dy = player.y - position.y;
+        return dx * dx + dy * dy >= 0.000001;
+    });
+
+    if (playerMoved) queueMovementFrame();
+
     const entering = store.getState().screen !== 'game';
-    if (!entering && game.viewVersion === lastViewVersion) return;
-    lastViewVersion = game.viewVersion;
-    gameRenderPending = true;
-    gameFocusPending ||= entering;
-    queueFrame();
+
+    if (entering || game.viewVersion !== lastViewVersion) {
+        lastViewVersion = game.viewVersion;
+        gameRenderPending = true;
+        gameFocusPending ||= entering;
+        queueFrame();
+    }
 }
 
 function sendMovement() {
@@ -178,7 +192,7 @@ function Lobby(state) {
 
     return h('main', { className: 'lobby-page' },
         h('section', { className: 'lobby-panel' },
-            h('h1', { className: 'bomberman-title' }, 'Bomberman'),
+            h('h1', { className: 'game-title' }, 'Bomberman'),
             h('h2', { className: 'lobby-count' }, `${players.length} / 4 players`),
             h('p', { className: countdownMs !== null ? 'countdown' : 'muted' }, status),
             h('ul', { className: 'player-list' }, players.map((player) => h('li', { key: player.id },
@@ -193,7 +207,9 @@ function Lobby(state) {
 
 function playerStyle(player) {
     const position = displayPositions.get(player.id) || player;
-    return { transform: `translate3d(${position.x * 100}%, ${position.y * 100}%, 0)` };
+    const x = Math.round(position.x * 1000) / 10;
+    const y = Math.round(position.y * 1000) / 10;
+    return { transform: `translate3d(${x}%, ${y}%, 0)` };
 }
 
 function tileStyle(x, y) {
@@ -233,7 +249,7 @@ function Game(state) {
     },
         h('section', { className: 'play-column' },
             h('header', { className: 'game-header' },
-                h('div', {}, h('h1', { className: 'bomberman-title' }, 'Bomberman'), h('span', {}, 'Arrows / WASD to move · Space to bomb'))
+                h('div', {}, h('h1', { className: 'game-title' }, 'Bomberman'), h('span', {}, 'Arrows / WASD to move · Space to bomb'))
             ),
             h('div', {
                 className: 'board',
@@ -310,7 +326,6 @@ events.listen(document, 'visibilitychange', () => {
         return;
     }
     connection?.activate();
-    lastRafTime = performance.now();
     if (latestGame) queueMovementFrame();
 });
 render(App(store.getState()), root);
@@ -332,52 +347,60 @@ function queueFrame() {
     requestAnimationFrame(runFrame);
 }
 
-function runFrame(now) {
+function runFrame() {
     frameQueued = false;
+
     if (gameRenderPending) {
         gameRenderPending = false;
-        store.setState({ screen: 'game', game: latestGame });
+
+        store.setState({
+            screen: 'game',
+            game: latestGame
+        });
+
         playerElements.clear();
+
         for (const element of document.querySelectorAll('[data-player-id]')) {
             playerElements.set(element.dataset.playerId, element);
         }
     }
 
-    const elapsed = Math.min(50, Math.max(0, now - lastRafTime));
-    lastRafTime = now;
-    let keepAnimating = false;
-    if (movementPending) {
-        movementPending = false;
-    }
-    if (latestGame) {
-        const blend = 1 - Math.exp(-elapsed / 35);
+    const animateMovement = movementPending;
+    movementPending = false;
+
+    if (latestGame && animateMovement) {
         for (const player of Object.values(latestGame.players)) {
-            const position = displayPositions.get(player.id) || { x: player.x, y: player.y };
-            const distance = Math.hypot(player.x - position.x, player.y - position.y);
-            if (distance < .001 || distance > 2) {
-                position.x = player.x;
-                position.y = player.y;
-            } else {
-                position.x += (player.x - position.x) * blend;
-                position.y += (player.y - position.y) * blend;
-                if (Math.hypot(player.x - position.x, player.y - position.y) < .001) {
-                    position.x = player.x;
-                    position.y = player.y;
-                } else {
-                    keepAnimating = true;
-                }
+            let position = displayPositions.get(player.id);
+
+            if (!position) {
+                position = { x: player.x, y: player.y };
+                displayPositions.set(player.id, position);
             }
-            displayPositions.set(player.id, position);
+
+            position.x = player.x;
+            position.y = player.y;
+
             const element = playerElements.get(player.id);
-            const transform = `translate3d(${position.x * 100}%, ${position.y * 100}%, 0)`;
-            if (element && element.style.transform !== transform) element.style.transform = transform;
+
+            if (!element) continue;
+
+            const x = Math.round(position.x * 1000) / 10;
+            const y = Math.round(position.y * 1000) / 10;
+
+            const transform = `translate3d(${x}%, ${y}%, 0)`;
+
+            if (element.style.transform !== transform) {
+                element.style.transform = transform;
+            }
         }
     }
-    movementPending ||= keepAnimating;
 
     if (gameFocusPending) {
         gameFocusPending = false;
         document.querySelector('.game-shell')?.focus();
     }
-    if (gameRenderPending || gameFocusPending || movementPending) queueFrame();
+
+    if (gameRenderPending || gameFocusPending || movementPending) {
+        queueFrame();
+    }
 }
