@@ -25,7 +25,6 @@ let game = null;
 let sentMapVersion = -1;
 let nextId = 1;
 let lastTick = performance.now();
-let lastBroadcast = 0;
 
 const types = {
     '.html': 'text/html; charset=utf-8',
@@ -133,20 +132,15 @@ setInterval(() => {
     const now = performance.now();
     const delta = Math.min(.05, (now - lastTick) / 1000);
     lastTick = now;
+
     if (phase === 'game' && game) {
         if (game.update(delta)) finishGame();
+        broadcastGame();
     } else {
         updateLobby();
+        broadcast(lobbyMessage());
     }
-
-    const broadcastInterval = phase === 'game' ? 50 : 250;
-    if (now - lastBroadcast >= broadcastInterval) {
-        lastBroadcast += broadcastInterval;
-        if (now - lastBroadcast > broadcastInterval) lastBroadcast = now;
-        if (phase === 'game' && game) broadcastGame();
-        else broadcast(lobbyMessage());
-    }
-}, 1000 / 60);
+}, 50);
 
 sockets.on('connection', (socket) => {
     const connectionId = `u${nextId++}`;

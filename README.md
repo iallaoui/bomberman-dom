@@ -55,7 +55,7 @@ backend/
   game.js             authoritative game rules and simulation
 ```
 
-The server simulates movement at 60 ticks per second and sends snapshots at about 20 updates per second. It is authoritative: clients send input, but the server decides positions and game outcomes.
+The server simulates movement and sends snapshots at 20 updates per second. It is authoritative: clients send input, but the server decides positions and game outcomes.
 
 The client uses `requestAnimationFrame` only while interpolating player movement or applying pending UI work. A tiny transform-only CSS indicator animates continuously while the game screen is open to satisfy the continuous-animation requirement without an always-running JavaScript loop. It is sampled at the display's refresh rate, but it does not guarantee or measure a particular FPS.
 
