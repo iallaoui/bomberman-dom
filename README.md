@@ -1,6 +1,6 @@
 # bomberman-dom
 
-A 2–4 player Bomberman-style game rendered with normal DOM elements and the included mini-framework. The browser client uses the framework for virtual DOM rendering, state, delegated events, and hash-based routing. A small Node server uses WebSockets for the lobby, chat, reconnectable sessions, authoritative game simulation, and synchronization.
+A 2–4 player Bomberman-style game rendered with normal DOM elements and the included mini-framework. The browser client uses the framework for virtual DOM rendering, state, delegated events, and hash-based routing. A small Node server uses WebSockets for the lobby, chat, authoritative game simulation, and synchronization.
 
 The project does not use React, Vue, Canvas, or WebGL. Its only package dependency is `ws`, used by Node for the WebSocket server.
 
@@ -14,26 +14,6 @@ npm start
 Open `http://localhost:8086` in two to four tabs or browser windows. Each tab has its own connection and player, and each player must choose a different nickname.
 
 When changing browser code, hard-refresh the page.
-
-## Configuration
-
-The server accepts these optional environment variables:
-
-| Variable | Default | Purpose |
-| --- | ---: | --- |
-| `PORT` | `8086` | HTTP and WebSocket port |
-| `WAIT_MS` | `20000` | Lobby waiting period |
-| `COUNTDOWN_MS` | `10000` | Match countdown |
-| `RESULT_MS` | `8000` | Result-screen duration |
-| `BOMB_MS` | `2200` | Bomb fuse duration |
-| `INVULNERABLE_MS` | `1800` | Respawn protection duration |
-| `RECONNECT_MS` | `10000` | Disconnected-player grace period |
-
-Example:
-
-```sh
-PORT=9000 WAIT_MS=5000 npm start
-```
 
 ## Controls
 
@@ -71,7 +51,7 @@ frontend/
   mini-framework/     DOM diffing, state, events, and routing
   network/            per-tab browser WebSocket connection
 backend/
-  index.js            HTTP, WebSocket, lobby, chat, and sessions
+  index.js            HTTP, WebSocket, lobby, and chat server
   game.js             authoritative game rules and simulation
 ```
 
@@ -81,7 +61,7 @@ The client uses `requestAnimationFrame` only while interpolating player movement
 
 The client re-renders only structural changes such as bombs, explosions, power-ups, damage, and results. Player transforms are updated directly between structural renders. The server sends the map only at match start and after a block changes.
 
-The server retains the latest 60 chat messages in memory. It also gives joined players an opaque browser session token and keeps disconnected players for a configurable grace period, allowing refreshes and short network interruptions to resume the same player. Chat history and sessions are cleared when the Node process restarts.
+The server retains the latest 60 chat messages in memory. Chat history is cleared when the Node process restarts, and disconnected players are removed immediately.
 
 ## Audit notes
 

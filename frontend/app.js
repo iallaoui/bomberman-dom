@@ -52,9 +52,7 @@ const router = new Router({
 
 function handleMessage(message) {
     if (message.type === 'welcome') store.setState({ id: message.id });
-    if (message.type === 'joined' && (!message.resumed || store.getState().screen === 'join')) {
-        store.setState({ screen: 'lobby', error: '' });
-    }
+    if (message.type === 'joined') store.setState({ screen: 'lobby', error: '' });
     if (message.type === 'chatHistory') store.setState({ chat: message.messages });
     if (message.type === 'chat') {
         store.setState(({ chat }) => ({ chat: [...chat.slice(-59), message.message] }));

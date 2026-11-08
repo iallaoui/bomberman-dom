@@ -1,5 +1,4 @@
 import http from 'node:http';
-import { randomUUID } from 'node:crypto';
 import { readFile } from 'node:fs/promises';
 import { extname, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -7,19 +6,17 @@ import { WebSocket, WebSocketServer } from 'ws';
 import { GameEngine } from './game.js';
 
 const frontendRoot = fileURLToPath(new URL('../frontend/', import.meta.url));
-const port = Number(process.env.PORT) || 8086;
+const port = 8086;
 const colors = ['#e05252', '#4f8fe8', '#48a868', '#d49b35'];
-const waitDuration = Number(process.env.WAIT_MS) || 20_000;
-const countdownDuration = Number(process.env.COUNTDOWN_MS) || 10_000;
-const resultDuration = Number(process.env.RESULT_MS) || 8000;
-const reconnectDuration = Number(process.env.RECONNECT_MS) || 10_000;
+const waitDuration = 20_000;
+const countdownDuration = 10_000;
+const resultDuration = 8000;
 const gameOptions = {
-    bombDuration: Number(process.env.BOMB_MS) || 2200,
-    invulnerabilityDuration: Number(process.env.INVULNERABLE_MS) || 1800
+    bombDuration: 2200,
+    invulnerabilityDuration: 1800
 };
 
 const players = new Map();
-const sessions = new Map();
 const chatHistory = [];
 let phase = 'lobby';
 let waitDeadline = 0;
@@ -37,8 +34,7 @@ const types = {
 };
 
 const server = http.createServer(async (request, response) => {
-    const pathname = new URL(request.url, `http://${request.headers.host}`).pathname;
-    const relative = pathname === '/' ? 'index.html' : decodeURIComponent(pathname.slice(1));
+    const relative = request.url === '/' ? 'index.html' : request.url.slice(1);
     const filename = resolve(frontendRoot, relative);
     if (!filename.startsWith(frontendRoot)) return response.writeHead(403).end('Forbidden');
 
@@ -106,12 +102,6 @@ function broadcastGame() {
     broadcast({ type: 'game', game: snapshot });
 }
 
-function sendCurrentView(socket) {
-    send(socket, { type: 'chatHistory', messages: chatHistory });
-    if (phase === 'game' && game) send(socket, { type: 'game', game: game.snapshot(true) });
-    else send(socket, lobbyMessage());
-}
-
 function finishGame() {
     broadcastGame();
     setTimeout(resetLobby, resultDuration);
@@ -159,36 +149,9 @@ setInterval(() => {
 }, 1000 / 60);
 
 sockets.on('connection', (socket) => {
-    let connectionId;
-    let sessionToken;
-    let initialized = false;
-
-    function initialize(requestedToken) {
-        if (initialized) return;
-        initialized = true;
-        const resumedId = requestedToken && sessions.get(requestedToken);
-        const resumedPlayer = resumedId && players.get(resumedId);
-
-        if (resumedPlayer) {
-            connectionId = resumedPlayer.id;
-            sessionToken = requestedToken;
-            clearTimeout(resumedPlayer.disconnectTimer);
-            if (resumedPlayer.socket && resumedPlayer.socket !== socket) resumedPlayer.socket.close();
-            resumedPlayer.socket = socket;
-            resumedPlayer.disconnectTimer = null;
-            send(socket, { type: 'welcome', id: connectionId, sessionToken, resumed: true });
-            send(socket, { type: 'joined', nickname: resumedPlayer.nickname, resumed: true });
-            sendCurrentView(socket);
-            if (phase === 'lobby') broadcastLobby();
-            return;
-        }
-
-        if (requestedToken) sessions.delete(requestedToken);
-        connectionId = `u${nextId++}`;
-        sessionToken = randomUUID();
-        send(socket, { type: 'welcome', id: connectionId, sessionToken, resumed: false });
-        send(socket, { type: 'chatHistory', messages: chatHistory });
-    }
+    const connectionId = `u${nextId++}`;
+    send(socket, { type: 'welcome', id: connectionId });
+    send(socket, { type: 'chatHistory', messages: chatHistory });
 
     socket.on('message', (raw) => {
         let message;
@@ -197,12 +160,6 @@ sockets.on('connection', (socket) => {
         } catch {
             return;
         }
-
-        if (message.type === 'hello') {
-            initialize(typeof message.sessionToken === 'string' ? message.sessionToken : null);
-            return;
-        }
-        if (!initialized) return;
 
         const current = players.get(connectionId);
         if (message.type === 'join') {
@@ -232,11 +189,8 @@ sockets.on('connection', (socket) => {
                 color: colors[slot],
                 slot,
                 socket,
-                sessionToken,
-                disconnectTimer: null,
                 lastChatAt: 0
             });
-            sessions.set(sessionToken, connectionId);
             send(socket, { type: 'joined', nickname });
             updateLobby();
             broadcastLobby();
@@ -263,25 +217,19 @@ sockets.on('connection', (socket) => {
 
     socket.on('close', () => {
         const player = players.get(connectionId);
-        if (!player || player.socket !== socket) return;
-        player.socket = null;
-        game?.setInput(connectionId, 0, 0);
-        player.disconnectTimer = setTimeout(() => {
-            if (player.socket || players.get(connectionId) !== player) return;
-            players.delete(connectionId);
-            sessions.delete(player.sessionToken);
-            game?.removePlayer(connectionId);
-            if (phase === 'lobby' && players.size < 2) {
-                waitDeadline = 0;
-                countdownDeadline = 0;
-            }
-            if (phase === 'game' && game) {
-                if (game.update(0)) finishGame();
-                else broadcastGame();
-            } else {
-                broadcastLobby();
-            }
-        }, reconnectDuration);
+        if (!player) return;
+        players.delete(connectionId);
+        game?.removePlayer(connectionId);
+        if (phase === 'lobby' && players.size < 2) {
+            waitDeadline = 0;
+            countdownDeadline = 0;
+        }
+        if (phase === 'game' && game) {
+            if (game.update(0)) finishGame();
+            else broadcastGame();
+        } else {
+            broadcastLobby();
+        }
     });
 });
 
