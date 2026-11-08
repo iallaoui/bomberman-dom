@@ -121,6 +121,7 @@ button:disabled { cursor: default; opacity: .55; }
 
 .tiles, .entities { position: absolute; inset: 0; }
 .tile { position: absolute; width: calc(100% / 15); height: calc(100% / 13); }
+.tile.floor { visibility: hidden; }
 .tile.wall { border: 2px solid #444; background: #777; }
 .tile.block { border: 2px solid #714626; background: #9b6438; }
 

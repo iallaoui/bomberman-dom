@@ -8,8 +8,8 @@ import { GameEngine } from './game.js';
 const publicRoot = fileURLToPath(new URL('../', import.meta.url));
 const port = Number(process.env.PORT) || 8086;
 const colors = ['#e05252', '#4f8fe8', '#48a868', '#d49b35'];
-const waitDuration = Number(process.env.WAIT_MS) || 1_000;
-const countdownDuration = Number(process.env.COUNTDOWN_MS) || 1_000;
+const waitDuration = Number(process.env.WAIT_MS) || 20_000;
+const countdownDuration = Number(process.env.COUNTDOWN_MS) || 10_000;
 const resultDuration = Number(process.env.RESULT_MS) || 8000;
 const gameOptions = {
     bombDuration: Number(process.env.BOMB_MS) || 2200,
@@ -164,8 +164,16 @@ sockets.on('connection', (socket) => {
         if (message.type === 'join') {
             const nickname = String(message.nickname || '').trim().slice(0, 18);
             if (current || !nickname) return;
-            if (phase !== 'lobby' || players.size >= 4) {
-                send(socket, { type: 'error', message: phase === 'lobby' ? 'The room is full.' : 'A match is already running.' });
+            if (phase !== 'lobby') {
+                send(socket, { type: 'error', message: 'A match is already running.' });
+                return;
+            }
+            if (countdownDeadline) {
+                send(socket, { type: 'error', message: 'The match is starting.' });
+                return;
+            }
+            if (players.size >= 4) {
+                send(socket, { type: 'error', message: 'The room is full.' });
                 return;
             }
             if ([...players.values()].some((player) => player.nickname.toLowerCase() === nickname.toLowerCase())) {

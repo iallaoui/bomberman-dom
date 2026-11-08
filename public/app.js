@@ -33,6 +33,7 @@ const gameHeaderVNode = h('header', { className: 'game-header' },
 );
 let cachedMap;
 let cachedTiles;
+let tileCells;
 let cachedChatMessages;
 let cachedChatVNode;
 let connection;
@@ -62,6 +63,10 @@ function send(message) {
 }
 
 function clearGameVNodeCaches() {
+    cachedMap = null;
+    cachedTiles = null;
+    tileCells = null;
+    tileVNodes.clear();
     powerupVNodes.clear();
     bombVNodes.clear();
     playerVNodes.clear();
@@ -252,11 +257,16 @@ function tileStyle(x, y) {
 }
 
 function Tiles(map) {
+    if (!tileCells) {
+        tileCells = map.flatMap((row, y) => row.flatMap((tile, x) => (
+            tile === 'floor' ? [] : [{ x, y }]
+        )));
+    }
     if (map !== cachedMap) {
         cachedMap = map;
-        cachedTiles = h('div', { className: 'tiles' }, map.flatMap((row, y) => row.flatMap((tile, x) => (
-            tile === 'floor' ? [] : [tileVNode(tile, x, y)]
-        ))));
+        cachedTiles = h('div', { className: 'tiles' }, tileCells.map(({ x, y }) => (
+            tileVNode(map[y][x], x, y)
+        )));
     }
     return cachedTiles;
 }
@@ -444,11 +454,13 @@ function queueFrame() {
 
 function runFrame() {
     frameQueued = false;
+    let renderedGame = false;
 
     if (pendingGame) applyPendingGame();
 
     if (gameRenderPending) {
         gameRenderPending = false;
+        renderedGame = true;
 
         store.setState({
             screen: 'game',
@@ -492,7 +504,7 @@ function runFrame() {
         }
     }
 
-    if (gameFocusPending) {
+    if (gameFocusPending && !renderedGame) {
         gameFocusPending = false;
         document.querySelector('.game-shell')?.focus();
     }
