@@ -32,44 +32,76 @@ function setAttr(element, name, oldValue, value) {
     if (name.startsWith('on')) {
         const type = name.slice(2).toLowerCase();
         element._handlers ||= {};
-        if (typeof value === 'function') element._handlers[type] = value;
-        else delete element._handlers[type];
+
+        if (typeof value === 'function') {
+            element._handlers[type] = value;
+        } else {
+            delete element._handlers[type];
+        }
         return;
     }
 
     if (name === 'style') {
-        const oldStyle = oldValue && typeof oldValue === 'object' ? oldValue : {};
-        const newStyle = value && typeof value === 'object' ? value : {};
+        const oldStyle = oldValue && typeof oldValue === 'object'
+            ? oldValue : {};
+
+        const newStyle = value && typeof value === 'object'
+            ? value : {};
+
         for (const property of Object.keys(oldStyle)) {
-            if (!(property in newStyle)) element.style[property] = '';
+            if (!(property in newStyle)) {
+                element.style[property] = '';
+            }
         }
-        Object.assign(element.style, newStyle);
+
+        for (const [property, newValue] of Object.entries(newStyle)) {
+            if (oldStyle[property] !== newValue) {
+                element.style[property] = newValue;
+            }
+        }
+
         return;
     }
 
     if (name === 'className') {
-        element.className = value || '';
+        if (element.className !== (value || '')) {
+            element.className = value || '';
+        }
         return;
     }
 
     if (value === false || value === null || value === undefined) {
         element.removeAttribute(name);
+
         if (name in element) {
-            if (typeof element[name] === 'boolean') element[name] = false;
-            else if (typeof element[name] === 'string') element[name] = '';
+            if (typeof element[name] === 'boolean') {
+                element[name] = false;
+            } else if (typeof element[name] === 'string') {
+                element[name] = '';
+            }
         }
         return;
     }
 
     if (name in element && name !== 'list' && name !== 'form') {
-        element[name] = value;
+        if (element[name] !== value) {
+            element[name] = value;
+        }
     } else {
-        element.setAttribute(name, value === true ? '' : String(value));
+        const attrValue = value === true ? '' : String(value);
+
+        if (element.getAttribute(name) !== attrValue) {
+            element.setAttribute(name, attrValue);
+        }
     }
 }
 
 function updateAttrs(element, oldAttrs, newAttrs) {
-    const names = new Set([...Object.keys(oldAttrs), ...Object.keys(newAttrs)]);
+    const names = new Set([
+        ...Object.keys(oldAttrs),
+        ...Object.keys(newAttrs)
+    ]);
+
     for (const name of names) {
         if (oldAttrs[name] !== newAttrs[name]) {
             setAttr(element, name, oldAttrs[name], newAttrs[name]);
