@@ -2,44 +2,20 @@ import { h } from '../mini-framework/dom.js';
 
 const movementKeys = new Set(['ArrowLeft', 'ArrowRight', 'ArrowUp', 'ArrowDown', 'KeyA', 'KeyD', 'KeyW', 'KeyS']);
 const powerupLabels = { bomb: 'B', flame: 'F', speed: 'S' };
-const gameHeaderVNode = h('header', { className: 'game-header' },
-    h('div', {}, h('h1', { className: 'game-title' }, 'Bomberman'), h('span', {}, 'Arrows / WASD to move · Space to bomb'))
-);
 
 export function createGameScreen({ send, commitGame, Chat }) {
     const pressed = new Set();
     const displayPositions = new Map();
     const playerElements = new Map();
-    const tileStyles = new Map();
-    const tileVNodes = new Map();
-    const powerupVNodes = new Map();
-    const bombVNodes = new Map();
-    const flameVNodes = new Map();
-    const playerVNodes = new Map();
-    const hudVNodes = new Map();
-    let cachedMap;
-    let cachedTiles;
-    let tileCells;
     let frameQueued = false;
     let renderPending = false;
     let focusPending = false;
     let movementPending = false;
     let latestGame;
     let pendingGame;
+    let lastSnapshotAt = 0;
     let lastViewVersion = -1;
     let lastMovement = '';
-
-    function clearCaches() {
-        cachedMap = null;
-        cachedTiles = null;
-        tileCells = null;
-        tileVNodes.clear();
-        powerupVNodes.clear();
-        bombVNodes.clear();
-        flameVNodes.clear();
-        playerVNodes.clear();
-        hudVNodes.clear();
-    }
 
     function reset() {
         latestGame = null;
@@ -47,12 +23,12 @@ export function createGameScreen({ send, commitGame, Chat }) {
         renderPending = false;
         focusPending = false;
         movementPending = false;
+        lastSnapshotAt = 0;
         lastViewVersion = -1;
         lastMovement = '';
         pressed.clear();
         displayPositions.clear();
         playerElements.clear();
-        clearCaches();
     }
 
     function acceptSnapshot(game) {
@@ -61,29 +37,48 @@ export function createGameScreen({ send, commitGame, Chat }) {
         queueFrame();
     }
 
-    function applySnapshot() {
+    function applySnapshot(now) {
         const game = pendingGame;
         pendingGame = null;
         latestGame = game;
+        const interpolationDuration = lastSnapshotAt
+            ? Math.max(40, Math.min(150, now - lastSnapshotAt))
+            : 50;
+        lastSnapshotAt = now;
 
-        let playerMoved = false;
         for (const player of Object.values(game.players)) {
-            if (!displayPositions.has(player.id)) {
-                displayPositions.set(player.id, { x: player.x, y: player.y });
-                continue;
+            let position = displayPositions.get(player.id);
+            if (!position) {
+                position = { x: player.x, y: player.y };
+                displayPositions.set(player.id, position);
             }
-            const position = displayPositions.get(player.id);
-            const dx = player.x - position.x;
-            const dy = player.y - position.y;
-            if (dx * dx + dy * dy >= 0.000001) playerMoved = true;
+            position.fromX = position.x;
+            position.fromY = position.y;
+            position.targetX = player.x;
+            position.targetY = player.y;
+            position.startedAt = now;
+            position.duration = interpolationDuration;
+            const dx = position.targetX - position.x;
+            const dy = position.targetY - position.y;
+            if (dx * dx + dy * dy >= 0.000001) movementPending = true;
         }
 
-        if (playerMoved) movementPending = true;
+        for (const id of displayPositions.keys()) {
+            if (!game.players[id]) displayPositions.delete(id);
+        }
+
         const entering = lastViewVersion === -1;
         if (entering || game.viewVersion !== lastViewVersion) {
             lastViewVersion = game.viewVersion;
             renderPending = true;
             focusPending ||= entering;
+        }
+    }
+
+    function collectPlayerElements() {
+        playerElements.clear();
+        for (const element of document.querySelectorAll('[data-player-id]')) {
+            playerElements.set(element.dataset.playerId, element);
         }
     }
 
@@ -130,99 +125,62 @@ export function createGameScreen({ send, commitGame, Chat }) {
 
     function playerStyle(player) {
         const position = displayPositions.get(player.id) || player;
+        return { transform: positionTransform(position) };
+    }
+
+    function positionTransform(position) {
         const x = Math.round(position.x * 1000) / 10;
         const y = Math.round(position.y * 1000) / 10;
-        return { transform: `translate3d(${x}%, ${y}%, 0)` };
+        return `translate3d(${x}%, ${y}%, 0)`;
     }
 
     function tileStyle(x, y) {
-        const key = `${x}-${y}`;
-        let style = tileStyles.get(key);
-        if (!style) {
-            style = { left: `${x * 100 / 15}%`, top: `${y * 100 / 13}%` };
-            tileStyles.set(key, style);
-        }
-        return style;
-    }
-
-    function tileVNode(tile, x, y) {
-        const key = `${x}-${y}`;
-        const cached = tileVNodes.get(key);
-        if (cached?.tile === tile) return cached.vnode;
-        const vnode = h('div', { key, className: `tile ${tile}`, style: tileStyle(x, y) });
-        tileVNodes.set(key, { tile, vnode });
-        return vnode;
+        return { left: `${x * 100 / 15}%`, top: `${y * 100 / 13}%` };
     }
 
     function Tiles(map) {
-        if (!tileCells) {
-            tileCells = map.flatMap((row, y) => row.flatMap((tile, x) => (
-                tile === 'floor' ? [] : [{ x, y }]
-            )));
-        }
-        if (map !== cachedMap) {
-            cachedMap = map;
-            cachedTiles = h('div', { className: 'tiles' }, tileCells.map(({ x, y }) => tileVNode(map[y][x], x, y)));
-        }
-        return cachedTiles;
-    }
-
-    function cachedVNode(cache, key, signature, create) {
-        const cached = cache.get(key);
-        if (cached?.signature === signature) return cached.vnode;
-        const vnode = create();
-        cache.set(key, { signature, vnode });
-        return vnode;
-    }
-
-    function pruneCache(cache, activeKeys) {
-        for (const key of cache.keys()) {
-            if (!activeKeys.has(key)) cache.delete(key);
-        }
+        return h('div', { className: 'tiles' }, map.flatMap((row, y) => row.flatMap((tile, x) => (
+            tile === 'floor' ? [] : [h('div', {
+                key: `${x}-${y}`,
+                className: `tile ${tile}`,
+                style: tileStyle(x, y)
+            })]
+        ))));
     }
 
     function Powerup(item) {
-        const signature = `${item.type}|${item.x}|${item.y}`;
-        return cachedVNode(powerupVNodes, item.id, signature, () => h('div', {
+        return h('div', {
             key: item.id,
             className: `entity powerup powerup-${item.type}`,
             style: tileStyle(item.x, item.y)
-        }, powerupLabels[item.type]));
+        }, powerupLabels[item.type]);
     }
 
     function Bomb(bomb) {
-        const signature = `${bomb.x}|${bomb.y}`;
-        return cachedVNode(bombVNodes, bomb.id, signature, () => h('div', {
+        return h('div', {
             key: bomb.id,
             className: 'entity bomb-wrap',
             style: tileStyle(bomb.x, bomb.y)
-        }, h('span', { className: 'bomb' })));
+        }, h('span', { className: 'bomb' }));
     }
 
     function Flame(key, cell) {
-        let vnode = flameVNodes.get(key);
-        if (!vnode) {
-            vnode = h('div', { key, className: 'entity explosion', style: tileStyle(cell.x, cell.y) });
-            flameVNodes.set(key, vnode);
-        }
-        return vnode;
+        return h('div', { key, className: 'entity explosion', style: tileStyle(cell.x, cell.y) });
     }
 
     function Player(player, now) {
         const invulnerable = player.invulnerableUntil > now;
-        const signature = `${player.active}|${invulnerable}|${player.color}|${player.nickname}`;
-        return cachedVNode(playerVNodes, player.id, signature, () => h('div', {
+        return h('div', {
             key: player.id,
             'data-player-id': player.id,
             className: `entity player ${player.active ? '' : 'eliminated'} ${invulnerable ? 'invulnerable' : ''}`,
             style: playerStyle(player)
-        }, h('span', { style: { backgroundColor: player.color } }, player.nickname.slice(0, 2).toUpperCase())));
+        }, h('span', { style: { backgroundColor: player.color } }, player.nickname.slice(0, 2).toUpperCase()));
     }
 
     function HudPlayer(player, currentPlayerId) {
         const isCurrentPlayer = player.id === currentPlayerId;
-        const signature = `${isCurrentPlayer}|${player.active}|${player.lives}|${player.bombLimit}|${player.range}|${player.speed}|${player.color}|${player.nickname}`;
-        return cachedVNode(hudVNodes, player.id, signature, () => h('article', {
+        return h('article', {
             key: player.id,
             className: isCurrentPlayer ? 'is-you' : ''
         },
@@ -230,7 +188,7 @@ export function createGameScreen({ send, commitGame, Chat }) {
             h('strong', {}, player.nickname),
             h('span', {}, player.active ? `${'♥'.repeat(player.lives)}${'♡'.repeat(3 - player.lives)}` : 'OUT'),
             h('small', {}, `B${player.bombLimit} · F${player.range} · S${player.speed.toFixed(1)}`)
-        ));
+        );
     }
 
     function render(state) {
@@ -243,13 +201,6 @@ export function createGameScreen({ send, commitGame, Chat }) {
             for (const cell of explosion.cells) flameCells.set(`${cell.x}-${cell.y}`, cell);
         }
         const players = Object.values(game.players);
-        const powerupKeys = new Set(game.powerups.map((item) => item.id));
-        const bombKeys = new Set(game.bombs.map((bomb) => bomb.id));
-        const playerKeys = new Set(players.map((player) => player.id));
-        pruneCache(powerupVNodes, powerupKeys);
-        pruneCache(bombVNodes, bombKeys);
-        pruneCache(playerVNodes, playerKeys);
-        pruneCache(hudVNodes, playerKeys);
 
         return h('main', {
             className: 'game-shell',
@@ -259,7 +210,17 @@ export function createGameScreen({ send, commitGame, Chat }) {
             onBlur: releaseMovement
         },
             h('section', { className: 'play-column' },
-                gameHeaderVNode,
+                h('header', { className: 'game-header' },
+                    h('div', {},
+                        h('h1', { className: 'game-title' }, 'Bomberman'),
+                        h('span', {}, 'Arrows / WASD to move · Space to bomb')
+                    ),
+                    h('span', {
+                        className: 'frame-indicator',
+                        'aria-hidden': 'true',
+                        title: 'Animation running'
+                    })
+                ),
                 h('div', {
                     className: 'board',
                     onClick: () => document.querySelector('.game-shell')?.focus(),
@@ -291,46 +252,44 @@ export function createGameScreen({ send, commitGame, Chat }) {
         requestAnimationFrame(runFrame);
     }
 
-    function runFrame() {
+    function animatePlayers(now) {
+        movementPending = false;
+        for (const player of Object.values(latestGame.players)) {
+            const position = displayPositions.get(player.id);
+            if (!position) continue;
+            const progress = Math.min(1, (now - position.startedAt) / position.duration);
+            position.x = position.fromX + (position.targetX - position.fromX) * progress;
+            position.y = position.fromY + (position.targetY - position.fromY) * progress;
+            if (progress < 1) movementPending = true;
+            const element = playerElements.get(player.id);
+            if (!element) continue;
+            const transform = positionTransform(position);
+            if (element.style.transform !== transform) element.style.transform = transform;
+        }
+    }
+
+    function runFrame(now) {
         frameQueued = false;
         let renderedGame = false;
-        if (pendingGame) applySnapshot();
+        if (pendingGame) applySnapshot(now);
 
         if (renderPending) {
             renderPending = false;
             renderedGame = true;
             commitGame(latestGame);
-            playerElements.clear();
-            for (const element of document.querySelectorAll('[data-player-id]')) {
-                playerElements.set(element.dataset.playerId, element);
-            }
+            collectPlayerElements();
         }
 
-        const animateMovement = movementPending;
-        movementPending = false;
-        if (latestGame && animateMovement) {
-            for (const player of Object.values(latestGame.players)) {
-                let position = displayPositions.get(player.id);
-                if (!position) {
-                    position = { x: player.x, y: player.y };
-                    displayPositions.set(player.id, position);
-                }
-                position.x = player.x;
-                position.y = player.y;
-                const element = playerElements.get(player.id);
-                if (!element) continue;
-                const x = Math.round(position.x * 1000) / 10;
-                const y = Math.round(position.y * 1000) / 10;
-                const transform = `translate3d(${x}%, ${y}%, 0)`;
-                if (element.style.transform !== transform) element.style.transform = transform;
-            }
-        }
+        if (latestGame && movementPending) animatePlayers(now);
 
         if (focusPending && !renderedGame) {
             focusPending = false;
             document.querySelector('.game-shell')?.focus();
         }
-        if (pendingGame || renderPending || focusPending || movementPending) queueFrame();
+
+        if (pendingGame || renderPending || focusPending || movementPending) {
+            queueFrame();
+        }
     }
 
     return { acceptSnapshot, refreshMovement, releaseMovement, render, requestFocus, reset };

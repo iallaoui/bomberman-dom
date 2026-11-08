@@ -89,8 +89,26 @@ button:disabled { cursor: default; opacity: .55; }
 .game-header h1 { margin: 0 12px 0 0; font-size: 1.2rem; }
 .game-header div { display: flex; align-items: center; }
 .game-header span { color: #555; font-size: .8rem; }
-.game-header::after {
+.frame-indicator {
+    display: block;
+    flex: 0 0 auto;
+    width: 6px;
+    height: 6px;
     margin-left: auto;
+    border-radius: 50%;
+    background: #2f633c;
+    contain: strict;
+    pointer-events: none;
+    will-change: transform;
+    animation: frame-indicator 1s linear infinite alternate;
+}
+
+@keyframes frame-indicator {
+    to { transform: translate3d(16px, 0, 0); }
+}
+
+.game-header::after {
+    margin-left: 20px;
     padding: 3px 7px;
     border-radius: 999px;
     color: #fff;
@@ -100,14 +118,7 @@ button:disabled { cursor: default; opacity: .55; }
     font-size: .65rem;
     font-weight: bold;
     letter-spacing: .08em;
-    opacity: .6;
-    transform: translateZ(0);
-    will-change: opacity;
-    animation: live-indicator 1.6s linear infinite alternate;
-}
-
-@keyframes live-indicator {
-    to { opacity: 1; }
+    opacity: 1;
 }
 .board {
     position: relative;
@@ -139,7 +150,7 @@ button:disabled { cursor: default; opacity: .55; }
 
 .player {
     z-index: 4;
-    transition: transform 50ms linear, opacity 160ms ease;
+    transition: opacity 160ms ease;
     will-change: transform;
 }
 .player span {
