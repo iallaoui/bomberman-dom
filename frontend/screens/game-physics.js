@@ -12,11 +12,9 @@ export function createGamePhysics({ send, commitGame }) {
     const playerElements = new Map();
     let frameQueued = false;
     let renderPending = false;
-    let focusPending = false;
     let movementPending = false;
     let latestGame;
     let pendingGame;
-    let lastSnapshotAt = 0;
     let lastViewVersion = -1;
     let lastMovement = '';
 
@@ -24,9 +22,7 @@ export function createGamePhysics({ send, commitGame }) {
         latestGame = null;
         pendingGame = null;
         renderPending = false;
-        focusPending = false;
         movementPending = false;
-        lastSnapshotAt = 0;
         lastViewVersion = -1;
         lastMovement = '';
         pressed.clear();
@@ -44,10 +40,6 @@ export function createGamePhysics({ send, commitGame }) {
         const game = pendingGame;
         pendingGame = null;
         latestGame = game;
-        const interpolationDuration = lastSnapshotAt
-            ? Math.max(40, Math.min(150, now - lastSnapshotAt))
-            : 50;
-        lastSnapshotAt = now;
 
         for (const player of Object.values(game.players)) {
             let position = displayPositions.get(player.id);
@@ -60,7 +52,7 @@ export function createGamePhysics({ send, commitGame }) {
             position.targetX = player.x;
             position.targetY = player.y;
             position.startedAt = now;
-            position.duration = interpolationDuration;
+            position.duration = 50;
             const dx = position.targetX - position.x;
             const dy = position.targetY - position.y;
             if (dx * dx + dy * dy >= 0.000001) movementPending = true;
@@ -74,7 +66,6 @@ export function createGamePhysics({ send, commitGame }) {
         if (entering || game.viewVersion !== lastViewVersion) {
             lastViewVersion = game.viewVersion;
             renderPending = true;
-            focusPending ||= entering;
         }
     }
 
@@ -117,8 +108,7 @@ export function createGamePhysics({ send, commitGame }) {
     }
 
     function requestFocus() {
-        focusPending = true;
-        queueFrame();
+        document.querySelector('.game-shell')?.focus();
     }
 
     function refreshMovement() {
@@ -155,24 +145,19 @@ export function createGamePhysics({ send, commitGame }) {
 
     function runFrame(now) {
         frameQueued = false;
-        let renderedGame = false;
         if (pendingGame) applySnapshot(now);
 
         if (renderPending) {
             renderPending = false;
-            renderedGame = true;
+            const entering = playerElements.size === 0;
             commitGame(latestGame);
             collectPlayerElements();
+            if (entering) document.querySelector('.game-shell')?.focus();
         }
 
         if (latestGame && movementPending) animatePlayers(now);
 
-        if (focusPending && !renderedGame) {
-            focusPending = false;
-            document.querySelector('.game-shell')?.focus();
-        }
-
-        if (pendingGame || renderPending || focusPending || movementPending) {
+        if (pendingGame || renderPending || movementPending) {
             queueFrame();
         }
     }
