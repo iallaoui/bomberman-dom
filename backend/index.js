@@ -138,7 +138,7 @@ setInterval(() => {
         broadcastGame();
     } else {
         updateLobby();
-        broadcast(lobbyMessage());
+        if (phase === 'lobby') broadcastLobby();
     }
 }, 50);
 
