@@ -28,6 +28,8 @@ export class GameEngine {
         this.invulnerabilityDuration = options.invulnerabilityDuration ?? 1800;
         this.random = options.random ?? Math.random;
         this.nextId = 1;
+        this.revision = 0;
+        this.mapVersion = 0;
 
         const players = {};
         for (const player of roster) {
@@ -68,6 +70,34 @@ export class GameEngine {
 
     touchView() {
         this.state.viewVersion += 1;
+        this.revision += 1;
+    }
+
+    snapshot(includeMap = true) {
+        const game = this.state;
+        const snapshot = {
+            viewVersion: game.viewVersion,
+            players: Object.fromEntries(Object.entries(game.players).map(([id, player]) => [id, {
+                id,
+                nickname: player.nickname,
+                color: player.color,
+                x: Number(player.x.toFixed(3)),
+                y: Number(player.y.toFixed(3)),
+                lives: player.lives,
+                active: player.active,
+                bombLimit: player.bombLimit,
+                range: player.range,
+                speed: player.speed,
+                invulnerableUntil: player.invulnerableUntil
+            }])),
+            bombs: game.bombs.map(({ id, x, y }) => ({ id, x, y })),
+            explosions: game.explosions.map(({ id, cells }) => ({ id, cells })),
+            powerups: game.powerups,
+            winner: game.winner,
+            now: Date.now()
+        };
+        if (includeMap) snapshot.map = game.map;
+        return snapshot;
     }
 
     setInput(id, x, y) {
@@ -151,6 +181,7 @@ export class GameEngine {
         const nextY = player.y + (axis === 'y' ? amount : 0);
         if (!this.canMove(player, nextX, nextY)) return false;
         player[axis] += amount;
+        this.revision += 1;
         return true;
     }
 
@@ -252,6 +283,7 @@ export class GameEngine {
         for (const cell of cells) {
             if (game.map[cell.y][cell.x] === 'block') {
                 game.map[cell.y][cell.x] = 'floor';
+                this.mapVersion += 1;
                 const guaranteed = game.guaranteedPowerups.shift();
                 if (guaranteed || this.random() < .28) {
                     const types = ['bomb', 'flame', 'speed'];

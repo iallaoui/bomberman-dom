@@ -4,12 +4,13 @@ import { extname, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { WebSocket, WebSocketServer } from 'ws';
 import { GameEngine } from './game.js';
+import { createGameBroadcaster } from './game-sync.js';
 
 const frontendRoot = fileURLToPath(new URL('../frontend/', import.meta.url));
 const port = 8086;
 const colors = ['#e05252', '#4f8fe8', '#48a868', '#d49b35'];
-const waitDuration = 20_000;
-const countdownDuration = 10_000;
+const waitDuration = 2_000;
+const countdownDuration = 1_000;
 const resultDuration = 8000;
 const tickRate = 1000 / 60;
 const gameOptions = {
@@ -25,6 +26,7 @@ let waitDeadline = 0;
 let countdownDeadline = 0;
 let game = null;
 let nextId = 1;
+let lastLobbyBroadcast = 0;
 
 const types = {
     '.html': 'text/html; charset=utf-8',
@@ -72,7 +74,10 @@ function lobbyMessage() {
 
 function broadcastLobby() {
     broadcast(lobbyMessage());
+    lastLobbyBroadcast = performance.now();
 }
+
+const sendGameSnapshot = createGameBroadcaster(broadcast);
 
 function startCountdown() {
     if (phase !== 'lobby' || countdownDeadline || players.size < 2) return;
@@ -91,10 +96,7 @@ function startGame() {
 }
 
 function broadcastGame() {
-    broadcast({
-        type: 'game',
-        game: { ...game.state, now: Date.now() }
-    });
+    sendGameSnapshot(game);
 }
 
 function finishGame() {
@@ -139,7 +141,7 @@ setInterval(() => {
     }
 
     updateLobby();
-    if (phase === 'lobby') broadcastLobby();
+    if (phase === 'lobby' && performance.now() - lastLobbyBroadcast >= 250) broadcastLobby();
 }, tickRate);
 
 sockets.on('connection', (socket) => {
