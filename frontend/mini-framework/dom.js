@@ -129,8 +129,7 @@ function patchChildren(element, oldChildren, newChildren) {
             .map((entry) => [keyOf(entry.vnode), entry])
     );
 
-    for (let index = 0; index < newChildren.length; index += 1) {
-        const newChild = newChildren[index];
+    const matches = newChildren.map((newChild) => {
         const key = keyOf(newChild);
         let entry = null;
 
@@ -143,19 +142,26 @@ function patchChildren(element, oldChildren, newChildren) {
             ));
         }
 
+        if (entry) entry.used = true;
+        return { entry, newChild };
+    });
+
+    // Remove stale nodes before placing survivors, so a deletion does not move
+    // every following sibling just to put it ahead of the node being removed.
+    for (const entry of oldEntries) {
+        if (!entry.used && entry.node.parentNode === element) entry.node.remove();
+    }
+
+    for (let index = 0; index < matches.length; index += 1) {
+        const { entry, newChild } = matches[index];
         const currentNode = element.childNodes[index] || null;
         if (!entry) {
             element.insertBefore(createDom(newChild), currentNode);
             continue;
         }
 
-        entry.used = true;
         if (entry.node !== currentNode) element.insertBefore(entry.node, currentNode);
         patch(element, entry.node, entry.vnode, newChild);
-    }
-
-    for (const entry of oldEntries) {
-        if (!entry.used && entry.node.parentNode === element) entry.node.remove();
     }
 }
 

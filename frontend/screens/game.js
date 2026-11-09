@@ -2,22 +2,51 @@ import { h } from '../mini-framework/dom.js';
 import { createGamePhysics } from './game-physics.js';
 
 const powerupLabels = { bomb: 'B', flame: 'F', speed: 'S' };
+const gameHeader = h('header', { className: 'game-header' },
+    h('div', {},
+        h('h1', { className: 'game-title' }, 'Bomberman'),
+        h('span', {}, 'Arrows / WASD to move · Space to bomb')
+    ),
+    h('span', {
+        className: 'frame-indicator',
+        'aria-hidden': 'true',
+        title: 'Animation running'
+    })
+);
 
 export function createGameScreen({ send, commitGame, Chat }) {
     const physics = createGamePhysics({ send, commitGame });
+    let cachedMap;
+    let cachedTiles;
 
     function tileStyle(x, y) {
         return { left: `${x * 100 / 15}%`, top: `${y * 100 / 13}%` };
     }
 
     function Tiles(map) {
-        return h('div', { className: 'tiles' }, map.flatMap((row, y) => row.flatMap((tile, x) => (
-            tile === 'floor' ? [] : [h('div', {
-                key: `${x}-${y}`,
-                className: `tile ${tile}`,
-                style: tileStyle(x, y)
-            })]
-        ))));
+        if (map === cachedMap) return cachedTiles;
+        if (cachedMap && map.length === cachedMap.length && map.every((row, y) => (
+            row.length === cachedMap[y].length && row.every((tile, x) => tile === cachedMap[y][x])
+        ))) {
+            cachedMap = map;
+            return cachedTiles;
+        }
+
+        const previousTiles = cachedTiles?.children || [];
+        let index = 0;
+        cachedMap = map;
+        cachedTiles = h('div', { className: 'tiles' }, map.flatMap((row, y) => row.map((tile, x) => {
+            const previous = previousTiles[index++];
+            const key = `${x}-${y}`;
+            const className = `tile ${tile}`;
+            if (previous?.attrs.key === key && previous.attrs.className === className) return previous;
+            return h('div', {
+                key,
+                className,
+                style: previous?.attrs.key === key ? previous.attrs.style : tileStyle(x, y)
+            });
+        })));
+        return cachedTiles;
     }
 
     function Powerup(item) {
@@ -82,17 +111,7 @@ export function createGameScreen({ send, commitGame, Chat }) {
             onBlur: physics.releaseMovement
         },
             h('section', { className: 'play-column' },
-                h('header', { className: 'game-header' },
-                    h('div', {},
-                        h('h1', { className: 'game-title' }, 'Bomberman'),
-                        h('span', {}, 'Arrows / WASD to move · Space to bomb')
-                    ),
-                    h('span', {
-                        className: 'frame-indicator',
-                        'aria-hidden': 'true',
-                        title: 'Animation running'
-                    })
-                ),
+                gameHeader,
                 h('div', {
                     className: 'board',
                     onClick: () => document.querySelector('.game-shell')?.focus(),

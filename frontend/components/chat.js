@@ -1,8 +1,12 @@
 import { h } from '../mini-framework/dom.js';
 
 export function createChat({ send }) {
+    let previousMessages;
+    let cachedChat;
     return function Chat(messages) {
-        return h('section', { className: 'chat' },
+        if (messages === previousMessages) return cachedChat;
+        previousMessages = messages;
+        cachedChat = h('section', { className: 'chat' },
             h('h2', {}, 'Chat'),
             h('div', { className: 'messages', 'aria-live': 'polite' },
                 messages.length
@@ -32,5 +36,6 @@ export function createChat({ send }) {
                 h('button', { type: 'submit' }, 'Send')
             )
         );
+        return cachedChat;
     };
 }

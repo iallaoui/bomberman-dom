@@ -46,7 +46,7 @@ frontend/
   index.html          browser entry
   app.js              small application coordinator
   components/         shared chat UI
-  screens/            join/lobby UI, game UI, input, and interpolation
+  screens/            join/lobby UI, game UI, input, and movement updates
   style.css           fixed-board and interface styles
   mini-framework/     DOM diffing, state, events, and routing
   network/            per-tab browser WebSocket connection
@@ -57,16 +57,9 @@ backend/
 
 The server simulates movement and sends snapshots at 20 updates per second. It is authoritative: clients send input, but the server decides positions and game outcomes.
 
-The client uses `requestAnimationFrame` only while interpolating player movement or applying pending UI work. A tiny transform-only CSS indicator animates continuously while the game screen is open to satisfy the continuous-animation requirement without an always-running JavaScript loop. It is sampled at the display's refresh rate, but it does not guarantee or measure a particular FPS.
+The client keeps one `requestAnimationFrame` loop active during a match. Incoming snapshots are coalesced into the next frame; only structural changes rebuild the game view. Changed player positions set one `translate3d` target per snapshot, with browser-managed 75 ms linear transitions providing movement smoothing. Respawns skip the transition. Idle frames do not change the DOM. A small opacity-only indicator provides a continuous visual animation. Neither the loop nor the indicator guarantees a particular FPS. The server simulates at about 60 ticks per second and sends changed movement snapshots at about 20 updates per second, with structural changes sent immediately.
 
 The client re-renders only structural changes such as bombs, explosions, power-ups, damage, and results. Player transforms are updated directly between structural renders. The server sends the map only at match start and after a block changes.
 
 The server retains the latest 60 chat messages in memory. Chat history is cleared when the Node process restarts, and disconnected players are removed immediately.
 
-## Audit notes
-
-- The whole 15×13 map is visible at once.
-- Every spawn has two clear three-tile escape corridors, longer than the initial flame range.
-- Nicknames and chat are rendered as text nodes rather than HTML.
-- The server, rather than clients, decides collisions, damage, destroyed blocks, power-ups, and the winner.
-- Late players cannot join a match already in progress.

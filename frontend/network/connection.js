@@ -1,5 +1,5 @@
 export function createConnection(onMessage, onStatus) {
-    const socket = new WebSocket(`ws://${location.host}`);
+    const socket = new WebSocket(`ws://${location.hostname}:8086`);
     socket.addEventListener('open', () => onStatus(true));
     socket.addEventListener('message', ({ data }) => onMessage(JSON.parse(data)));
     socket.addEventListener('close', () => onStatus(false));

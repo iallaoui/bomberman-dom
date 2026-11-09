@@ -99,12 +99,13 @@ button:disabled { cursor: default; opacity: .55; }
     background: #2f633c;
     contain: strict;
     pointer-events: none;
-    will-change: transform;
-    animation: frame-indicator 1s linear infinite alternate;
+    opacity: .55;
+    will-change: opacity;
+    animation: frame-indicator 1.6s linear infinite alternate;
 }
 
 @keyframes frame-indicator {
-    to { transform: translate3d(16px, 0, 0); }
+    to { opacity: 1; }
 }
 
 .game-header::after {
@@ -150,7 +151,7 @@ button:disabled { cursor: default; opacity: .55; }
 
 .player {
     z-index: 4;
-    transition: opacity 160ms ease;
+    transition: transform 75ms linear, opacity 160ms ease;
     will-change: transform;
 }
 .player span {

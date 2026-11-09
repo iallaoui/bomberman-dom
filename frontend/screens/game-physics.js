@@ -10,20 +10,16 @@ export function createGamePhysics({ send, commitGame }) {
     const pressed = new Set();
     const displayPositions = new Map();
     const playerElements = new Map();
-    let frameQueued = false;
-    let renderPending = false;
-    let movementPending = false;
+    let frameId = null;
     let latestGame;
     let pendingGame;
-    let lastViewVersion = -1;
     let lastMovement = '';
 
     function reset() {
+        if (frameId !== null) cancelAnimationFrame(frameId);
+        frameId = null;
         latestGame = null;
         pendingGame = null;
-        renderPending = false;
-        movementPending = false;
-        lastViewVersion = -1;
         lastMovement = '';
         pressed.clear();
         displayPositions.clear();
@@ -31,47 +27,26 @@ export function createGamePhysics({ send, commitGame }) {
     }
 
     function acceptSnapshot(game) {
+        if (!game.map) game.map = pendingGame?.map || latestGame?.map;
         pendingGame = game;
         queueFrame();
     }
 
-    function applySnapshot(now) {
+    function applySnapshot() {
         const game = pendingGame;
         pendingGame = null;
         latestGame = game;
-
         for (const player of Object.values(game.players)) {
-            let position = displayPositions.get(player.id);
-            if (!position) {
-                position = { x: player.x, y: player.y };
-                displayPositions.set(player.id, position);
-            }
-            position.fromX = position.x;
-            position.fromY = position.y;
-            position.targetX = player.x;
-            position.targetY = player.y;
-            position.startedAt = now;
-            position.duration = 50;
-            const dx = position.targetX - position.x;
-            const dy = position.targetY - position.y;
-            if (dx * dx + dy * dy >= 0.000001) movementPending = true;
+            const previous = displayPositions.get(player.id);
+            const teleport = previous && Math.hypot(player.x - previous.x, player.y - previous.y) > 2;
+            displayPositions.set(player.id, {
+                x: player.x, y: player.y, lives: player.lives, active: player.active,
+                snap: !previous || previous.lives !== player.lives || previous.active !== player.active || Boolean(teleport)
+            });
         }
 
         for (const id of displayPositions.keys()) {
             if (!game.players[id]) displayPositions.delete(id);
-        }
-
-        const entering = lastViewVersion === -1;
-        if (entering || game.viewVersion !== lastViewVersion) {
-            lastViewVersion = game.viewVersion;
-            renderPending = true;
-        }
-    }
-
-    function collectPlayerElements() {
-        playerElements.clear();
-        for (const element of document.querySelectorAll('[data-player-id]')) {
-            playerElements.set(element.dataset.playerId, element);
         }
     }
 
@@ -95,9 +70,9 @@ export function createGamePhysics({ send, commitGame }) {
             down ? pressed.add(event.code) : pressed.delete(event.code);
             sendMovement();
         }
-        if (down && event.code === 'Space' && !event.repeat) {
+        if (event.code === 'Space') {
             event.preventDefault();
-            send({ type: 'bomb' });
+            if (down && !event.repeat) send({ type: 'bomb' });
         }
     }
 
@@ -111,54 +86,56 @@ export function createGamePhysics({ send, commitGame }) {
     }
 
     function refreshMovement() {
-        movementPending = true;
         queueFrame();
     }
 
     function playerStyle(player) {
         const position = displayPositions.get(player.id) || player;
-        return { transform: positionTransform(position) };
+        return {
+            transform: positionTransform(position),
+            transitionProperty: position.snap ? 'none' : ''
+        };
+    }
+
+    function collectPlayerElements() {
+        playerElements.clear();
+        for (const element of document.querySelectorAll('[data-player-id]')) {
+            playerElements.set(element.dataset.playerId, element);
+        }
     }
 
     function queueFrame() {
-        if (frameQueued) return;
-        frameQueued = true;
-        requestAnimationFrame(runFrame);
+        if (frameId !== null) return;
+        frameId = requestAnimationFrame(runFrame);
     }
 
-    function animatePlayers(now) {
-        movementPending = false;
-        for (const player of Object.values(latestGame.players)) {
-            const position = displayPositions.get(player.id);
-            if (!position) continue;
-            const progress = Math.min(1, (now - position.startedAt) / position.duration);
-            position.x = position.fromX + (position.targetX - position.fromX) * progress;
-            position.y = position.fromY + (position.targetY - position.fromY) * progress;
-            if (progress < 1) movementPending = true;
-            const element = playerElements.get(player.id);
+    function updatePlayerTransforms() {
+        for (const [id, position] of displayPositions) {
+            const element = playerElements.get(id);
             if (!element) continue;
+            const transition = position.snap ? 'none' : '';
+            if (element.style.transitionProperty !== transition) element.style.transitionProperty = transition;
             const transform = positionTransform(position);
             if (element.style.transform !== transform) element.style.transform = transform;
         }
     }
 
-    function runFrame(now) {
-        frameQueued = false;
-        if (pendingGame) applySnapshot(now);
-
-        if (renderPending) {
-            renderPending = false;
-            const entering = playerElements.size === 0;
-            commitGame(latestGame);
-            collectPlayerElements();
-            if (entering) document.querySelector('.game-shell')?.focus();
+    function runFrame() {
+        frameId = null;
+        if (pendingGame) {
+            const entering = !latestGame;
+            const renderNeeded = entering || pendingGame.viewVersion !== latestGame.viewVersion;
+            applySnapshot();
+            if (renderNeeded) {
+                commitGame(latestGame);
+                collectPlayerElements();
+            }
+            // Set one target per snapshot; CSS interpolates it on the compositor.
+            updatePlayerTransforms();
+            if (entering) requestFocus();
         }
 
-        if (latestGame && movementPending) animatePlayers(now);
-
-        if (pendingGame || renderPending || movementPending) {
-            queueFrame();
-        }
+        if (latestGame) queueFrame();
     }
 
     return {
