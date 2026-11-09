@@ -47,7 +47,6 @@ export class GameEngine {
 
         this.state = {
             map: createMap(this.random),
-            mapVersion: 0,
             viewVersion: 0,
             players,
             bombs: [],
@@ -65,10 +64,6 @@ export class GameEngine {
 
     get finished() {
         return Boolean(this.state.winner);
-    }
-
-    get mapVersion() {
-        return this.state.mapVersion;
     }
 
     touchView() {
@@ -108,33 +103,6 @@ export class GameEngine {
             ownerCanPass: true
         });
         this.touchView();
-    }
-
-    snapshot(includeMap = true) {
-        const game = this.state;
-        const output = {
-            viewVersion: game.viewVersion,
-            players: Object.fromEntries(Object.entries(game.players).map(([id, player]) => [id, {
-                id: player.id,
-                nickname: player.nickname,
-                color: player.color,
-                x: Number(player.x.toFixed(3)),
-                y: Number(player.y.toFixed(3)),
-                lives: player.lives,
-                active: player.active,
-                bombLimit: player.bombLimit,
-                range: player.range,
-                speed: Number(player.speed.toFixed(1)),
-                invulnerableUntil: player.invulnerableUntil
-            }])),
-            bombs: game.bombs.map(({ id, x, y }) => ({ id, x, y })),
-            explosions: game.explosions.map(({ id, cells }) => ({ id, cells })),
-            powerups: game.powerups,
-            winner: game.winner,
-            now: Date.now()
-        };
-        if (includeMap) output.map = game.map;
-        return output;
     }
 
     update(delta) {
@@ -284,7 +252,6 @@ export class GameEngine {
         for (const cell of cells) {
             if (game.map[cell.y][cell.x] === 'block') {
                 game.map[cell.y][cell.x] = 'floor';
-                game.mapVersion += 1;
                 const guaranteed = game.guaranteedPowerups.shift();
                 if (guaranteed || this.random() < .28) {
                     const types = ['bomb', 'flame', 'speed'];

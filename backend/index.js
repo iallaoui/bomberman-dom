@@ -11,20 +11,20 @@ const colors = ['#e05252', '#4f8fe8', '#48a868', '#d49b35'];
 const waitDuration = 20_000;
 const countdownDuration = 10_000;
 const resultDuration = 8000;
+const tickRate = 1000 / 60;
 const gameOptions = {
     bombDuration: 2200,
     invulnerabilityDuration: 1800
 };
 
 const players = new Map();
+const playerSockets = new Map();
 const chatHistory = [];
 let phase = 'lobby';
 let waitDeadline = 0;
 let countdownDeadline = 0;
 let game = null;
-let sentMapVersion = -1;
 let nextId = 1;
-let lastTick = performance.now();
 
 const types = {
     '.html': 'text/html; charset=utf-8',
@@ -54,22 +54,19 @@ function send(socket, message) {
 
 function broadcast(message) {
     const payload = JSON.stringify(message);
-    for (const player of players.values()) {
-        if (player.socket?.readyState === WebSocket.OPEN) player.socket.send(payload);
+    for (const playerId of players.keys()) {
+        const socket = playerSockets.get(playerId);
+        if (socket?.readyState === WebSocket.OPEN) socket.send(payload);
     }
-}
-
-function publicPlayers() {
-    return [...players.values()].map(({ id, nickname, color, slot }) => ({ id, nickname, color, slot }));
 }
 
 function lobbyMessage() {
     const now = Date.now();
     return {
         type: 'lobby',
-        players: publicPlayers(),
-        waitMs: waitDeadline ? Math.max(0, waitDeadline - now) : null,
-        countdownMs: countdownDeadline ? Math.max(0, countdownDeadline - now) : null
+        players: [...players.values()],
+        waitMs: waitDeadline ? waitDeadline - now : null,
+        countdownMs: countdownDeadline ? countdownDeadline - now : null
     };
 }
 
@@ -89,16 +86,15 @@ function startGame() {
     phase = 'game';
     countdownDeadline = 0;
     waitDeadline = 0;
-    game = new GameEngine(publicPlayers(), gameOptions);
-    sentMapVersion = -1;
+    game = new GameEngine([...players.values()], gameOptions);
     broadcastGame();
 }
 
 function broadcastGame() {
-    const includeMap = game.mapVersion !== sentMapVersion;
-    const snapshot = game.snapshot(includeMap);
-    if (includeMap) sentMapVersion = game.mapVersion;
-    broadcast({ type: 'game', game: snapshot });
+    broadcast({
+        type: 'game',
+        game: { ...game.state, now: Date.now() }
+    });
 }
 
 function finishGame() {
@@ -110,10 +106,11 @@ function resetLobby() {
     if (phase !== 'game' || !game?.finished) return;
     phase = 'lobby';
     game = null;
-    sentMapVersion = -1;
-    waitDeadline = players.size >= 2 ? Date.now() + waitDuration : 0;
+    waitDeadline = 0;
     countdownDeadline = 0;
-    broadcastLobby();
+    broadcast({ type: 'lobby', players: [], waitMs: null, countdownMs: null });
+    players.clear();
+    playerSockets.clear();
 }
 
 function updateLobby() {
@@ -122,25 +119,28 @@ function updateLobby() {
         countdownDeadline = 0;
         return;
     }
-    if (players.size === 4 && !countdownDeadline) startCountdown();
-    else if (!waitDeadline && !countdownDeadline) waitDeadline = Date.now() + waitDuration;
-    else if (waitDeadline && Date.now() >= waitDeadline) startCountdown();
-    if (countdownDeadline && Date.now() >= countdownDeadline) startGame();
+
+    const now = Date.now();
+
+    if (countdownDeadline) {
+        if (now >= countdownDeadline) startGame();
+        return;
+    }
+
+    if (!waitDeadline) waitDeadline = now + waitDuration;
+    if (players.size === 4 || now >= waitDeadline) startCountdown();
 }
 
 setInterval(() => {
-    const now = performance.now();
-    const delta = Math.min(.05, (now - lastTick) / 1000);
-    lastTick = now;
-
-    if (phase === 'game' && game) {
-        if (game.update(delta)) finishGame();
+    if (phase === 'game') {
+        if (game.update(1 / 60)) finishGame();
         broadcastGame();
-    } else {
-        updateLobby();
-        if (phase === 'lobby') broadcastLobby();
+        return;
     }
-}, 50);
+
+    updateLobby();
+    if (phase === 'lobby') broadcastLobby();
+}, tickRate);
 
 sockets.on('connection', (socket) => {
     const connectionId = `u${nextId++}`;
@@ -176,15 +176,17 @@ sockets.on('connection', (socket) => {
                 return;
             }
             const usedSlots = new Set([...players.values()].map((player) => player.slot));
-            const slot = [0, 1, 2, 3].find((value) => !usedSlots.has(value));
+            const slot = [0, 1, 2, 3].find((value) => {
+                return !usedSlots.has(value);
+            });
+
             players.set(connectionId, {
                 id: connectionId,
                 nickname,
                 color: colors[slot],
-                slot,
-                socket,
-                lastChatAt: 0
+                slot
             });
+            playerSockets.set(connectionId, socket);
             send(socket, { type: 'joined', nickname });
             updateLobby();
             broadcastLobby();
@@ -194,14 +196,11 @@ sockets.on('connection', (socket) => {
         if (!current) return;
         if (message.type === 'chat') {
             const text = String(message.text || '').trim().slice(0, 180);
-            const now = Date.now();
-            if (text && now - current.lastChatAt >= 250) {
-                const chatMessage = { id: `m${nextId++}`, nickname: current.nickname, text };
-                chatHistory.push(chatMessage);
-                if (chatHistory.length > 60) chatHistory.shift();
-                broadcast({ type: 'chat', message: chatMessage });
-                current.lastChatAt = now;
-            }
+            if (!text) return;
+
+            const chatMessage = { id: `m${nextId++}`, nickname: current.nickname, text };
+            chatHistory.push(chatMessage);
+            broadcast({ type: 'chat', message: chatMessage });
         }
         if (phase === 'game' && game?.hasPlayer(current.id)) {
             if (message.type === 'move') game.setInput(current.id, message.x, message.y);
@@ -213,6 +212,7 @@ sockets.on('connection', (socket) => {
         const player = players.get(connectionId);
         if (!player) return;
         players.delete(connectionId);
+        playerSockets.delete(connectionId);
         game?.removePlayer(connectionId);
         if (phase === 'lobby' && players.size < 2) {
             waitDeadline = 0;

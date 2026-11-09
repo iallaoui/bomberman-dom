@@ -31,7 +31,6 @@ export function createGamePhysics({ send, commitGame }) {
     }
 
     function acceptSnapshot(game) {
-        if (!game.map) game.map = pendingGame?.map || latestGame?.map;
         pendingGame = game;
         queueFrame();
     }

@@ -1,13 +1,8 @@
 import { h } from '../mini-framework/dom.js';
 
-export function createChat({ send, getScreen, requestGameFocus }) {
-    let cachedMessages;
-    let cachedVNode;
-
+export function createChat({ send }) {
     return function Chat(messages) {
-        if (messages === cachedMessages) return cachedVNode;
-        cachedMessages = messages;
-        cachedVNode = h('section', { className: 'chat' },
+        return h('section', { className: 'chat' },
             h('h2', {}, 'Chat'),
             h('div', { className: 'messages', 'aria-live': 'polite' },
                 messages.length
@@ -24,7 +19,7 @@ export function createChat({ send, getScreen, requestGameFocus }) {
                     if (!text) return;
                     send({ type: 'chat', text });
                     input.value = '';
-                    if (getScreen() === 'game') requestGameFocus();
+                    document.querySelector('.game-shell')?.focus();
                 }
             },
                 h('input', {
@@ -37,6 +32,5 @@ export function createChat({ send, getScreen, requestGameFocus }) {
                 h('button', { type: 'submit' }, 'Send')
             )
         );
-        return cachedVNode;
     };
 }

@@ -26,11 +26,7 @@ function send(message) {
     connection?.send(message);
 }
 
-const Chat = createChat({
-    send,
-    getScreen: () => store.getState().screen,
-    requestGameFocus: () => gameScreen.requestFocus()
-});
+const Chat = createChat({ send });
 
 gameScreen = createGameScreen({
     send,
@@ -59,7 +55,8 @@ function handleMessage(message) {
     }
     if (message.type === 'lobby') {
         gameScreen.reset();
-        store.setState({ screen: 'lobby', lobby: message, game: null });
+        const screen = message.players.length ? 'lobby' : 'join';
+        store.setState({ screen, lobby: message, game: null });
     }
     if (message.type === 'game') gameScreen.acceptSnapshot(message.game);
     if (message.type === 'error') store.setState({ error: message.message });
