@@ -1,13 +1,21 @@
 // A tiny virtual DOM with recursive, keyed diffing.
 const previousTrees = new WeakMap();
 
+function appendChild(children, child) {
+    if (Array.isArray(child)) {
+        for (const nestedChild of child) appendChild(children, nestedChild);
+        return;
+    }
+    if (child !== null && child !== undefined && child !== false) children.push(child);
+}
+
 export function h(tag, attrs = {}, ...children) {
+    const normalizedChildren = [];
+    for (const child of children) appendChild(normalizedChildren, child);
     return {
         tag,
         attrs: attrs || {},
-        children: children.flat(Infinity).filter((child) => (
-            child !== null && child !== undefined && child !== false
-        ))
+        children: normalizedChildren
     };
 }
 
@@ -97,12 +105,10 @@ function setAttr(element, name, oldValue, value) {
 }
 
 function updateAttrs(element, oldAttrs, newAttrs) {
-    const names = new Set([
-        ...Object.keys(oldAttrs),
-        ...Object.keys(newAttrs)
-    ]);
-
-    for (const name of names) {
+    for (const name of Object.keys(oldAttrs)) {
+        if (!(name in newAttrs)) setAttr(element, name, oldAttrs[name], undefined);
+    }
+    for (const name of Object.keys(newAttrs)) {
         if (oldAttrs[name] !== newAttrs[name]) {
             setAttr(element, name, oldAttrs[name], newAttrs[name]);
         }

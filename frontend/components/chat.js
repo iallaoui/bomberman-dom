@@ -10,9 +10,11 @@ export function createChat({ send }) {
             h('h2', {}, 'Chat'),
             h('div', { className: 'messages', 'aria-live': 'polite' },
                 messages.length
-                    ? messages.map((message) => h('p', { key: message.id },
-                        h('strong', {}, `${message.nickname}: `), message.text
-                    ))
+                    ? messages.map((message) => message.system
+                        ? h('p', { key: message.id, className: 'system-message' }, message.text)
+                        : h('p', { key: message.id },
+                            h('strong', {}, `${message.nickname}: `), message.text
+                        ))
                     : h('p', { className: 'muted' }, 'No messages yet.')
             ),
             h('form', {
@@ -23,7 +25,6 @@ export function createChat({ send }) {
                     if (!text) return;
                     send({ type: 'chat', text });
                     input.value = '';
-                    document.querySelector('.game-shell')?.focus();
                 }
             },
                 h('input', {

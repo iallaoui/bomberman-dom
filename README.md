@@ -19,14 +19,14 @@ When changing browser code, hard-refresh the page.
 
 - Move: arrow keys or WASD
 - Place bomb: Space
-- Chat: use the chat field in the waiting room or during a match
+- Chat: use the chat field in the waiting room
 
 ## Match flow
 
 - Two players start a 20-second waiting period followed by a 10-second countdown.
 - Four players skip directly to the 10-second countdown.
 - Every player starts in a different corner with three lives.
-- The last active player wins. The server returns connected players to the waiting room after the result screen.
+- The last active player wins. Each player has five seconds to choose **Play again** and return to the waiting room; players who do not choose it are logged out of the room.
 
 ## Game rules
 
@@ -61,5 +61,5 @@ The client keeps one `requestAnimationFrame` loop active during a match. Incomin
 
 The client re-renders only structural changes such as bombs, explosions, power-ups, damage, and results. Player transforms are updated directly between structural renders. The server sends the map only at match start and after a block changes.
 
-The server retains the latest 60 chat messages in memory. Chat history is cleared when the Node process restarts, and disconnected players are removed immediately.
+Chat exists only in the waiting room. It is scoped to the room, includes join notices, and cannot update the game renderer. The server retains messages in memory while the room has players. History is cleared when the room becomes empty or the Node process restarts, and disconnected players are removed immediately.
 

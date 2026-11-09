@@ -78,7 +78,7 @@ button:disabled { cursor: default; opacity: .55; }
     width: 100%;
     min-height: 100vh;
     display: grid;
-    grid-template-columns: minmax(0, 1fr) 280px;
+    grid-template-columns: minmax(0, 1fr);
     gap: 12px;
     padding: 12px;
     outline: 0;
@@ -199,13 +199,12 @@ button:disabled { cursor: default; opacity: .55; }
 .result { position: absolute; z-index: 10; top: 30%; padding: 20px 34px; border: 3px solid #222; background: #fffdf7; text-align: center; }
 .result h2 { margin: 0 0 8px; }
 .result p { margin: 0; }
-
-.game-shell > .chat { align-self: stretch; max-height: calc(100vh - 24px); }
+.result button { margin-top: 12px; }
+.system-message { color: #666; font-style: italic; }
 
 @media (max-width: 850px) {
     .lobby-page { grid-template-columns: minmax(0, 1fr); align-content: start; }
     .game-shell { grid-template-columns: 1fr; }
-    .game-shell > .chat { min-height: 220px; max-height: 260px; }
     .board { width: min(100%, max(280px, calc((100vh - 360px) * 15 / 13))); }
 }
 

@@ -9,9 +9,10 @@ import { createGameBroadcaster } from './game-sync.js';
 const frontendRoot = fileURLToPath(new URL('../frontend/', import.meta.url));
 const port = 8086;
 const colors = ['#e05252', '#4f8fe8', '#48a868', '#d49b35'];
-const waitDuration = 2_000;
-const countdownDuration = 1_000;
-const resultDuration = 8000;
+const waitDuration = 20_000;
+const countdownDuration = 10_000;
+const resultDuration = 5_000;
+const mainRoomId = 'main';
 const tickRate = 1000 / 60;
 const gameOptions = {
     bombDuration: 2200,
@@ -20,13 +21,15 @@ const gameOptions = {
 
 const players = new Map();
 const playerSockets = new Map();
-const chatHistory = [];
+const roomChats = new Map();
+const playAgainPlayers = new Set();
 let phase = 'lobby';
 let waitDeadline = 0;
 let countdownDeadline = 0;
 let game = null;
 let nextId = 1;
 let lastLobbyBroadcast = 0;
+let resultTimer = null;
 
 const types = {
     '.html': 'text/html; charset=utf-8',
@@ -51,7 +54,7 @@ const server = http.createServer(async (request, response) => {
 const sockets = new WebSocketServer({ server });
 
 function send(socket, message) {
-    if (socket.readyState === WebSocket.OPEN) socket.send(JSON.stringify(message));
+    if (socket?.readyState === WebSocket.OPEN) socket.send(JSON.stringify(message));
 }
 
 function broadcast(message) {
@@ -62,13 +65,42 @@ function broadcast(message) {
     }
 }
 
+function roomChat(roomId) {
+    if (!roomChats.has(roomId)) roomChats.set(roomId, []);
+    return roomChats.get(roomId);
+}
+
+function roomPlayerIds(roomId) {
+    return [...players.values()]
+        .filter((player) => player.roomId === roomId)
+        .map((player) => player.id);
+}
+
+function sendToPlayers(playerIds, message, excludedId = null) {
+    const payload = JSON.stringify(message);
+    for (const playerId of playerIds) {
+        if (playerId === excludedId) continue;
+        const socket = playerSockets.get(playerId);
+        if (socket?.readyState === WebSocket.OPEN) socket.send(payload);
+    }
+}
+
+function sendRoom(roomId, message, excludedId = null) {
+    sendToPlayers(roomPlayerIds(roomId), message, excludedId);
+}
+
+function clearRoomChatIfEmpty(roomId) {
+    if (!roomPlayerIds(roomId).length) roomChats.delete(roomId);
+}
+
 function lobbyMessage() {
     const now = Date.now();
     return {
         type: 'lobby',
+        roomId: mainRoomId,
         players: [...players.values()],
-        waitMs: waitDeadline ? waitDeadline - now : null,
-        countdownMs: countdownDeadline ? countdownDeadline - now : null
+        waitMs: waitDeadline ? Math.max(0, waitDeadline - now) : null,
+        countdownMs: countdownDeadline ? Math.max(0, countdownDeadline - now) : null
     };
 }
 
@@ -100,19 +132,52 @@ function broadcastGame() {
 }
 
 function finishGame() {
+    if (phase !== 'game' || !game?.finished) return;
     broadcastGame();
-    setTimeout(resetLobby, resultDuration);
+    phase = 'result';
+    playAgainPlayers.clear();
+    clearTimeout(resultTimer);
+    resultTimer = setTimeout(finalizeResult, resultDuration);
 }
 
-function resetLobby() {
-    if (phase !== 'game' || !game?.finished) return;
+function playAgainLobbyMessage() {
+    return {
+        type: 'lobby',
+        roomId: mainRoomId,
+        players: [...players.values()].filter((player) => playAgainPlayers.has(player.id)),
+        waitMs: null,
+        countdownMs: null
+    };
+}
+
+function broadcastPlayAgainLobby() {
+    sendToPlayers(playAgainPlayers, playAgainLobbyMessage());
+}
+
+function finalizeResult() {
+    if (phase !== 'result') return;
+    clearTimeout(resultTimer);
+    resultTimer = null;
+
+    for (const [playerId, player] of players) {
+        if (playAgainPlayers.has(playerId)) continue;
+        send(playerSockets.get(playerId), {
+            type: 'logout',
+            message: 'You did not choose Play again within 5 seconds.'
+        });
+        players.delete(playerId);
+        playerSockets.delete(playerId);
+        clearRoomChatIfEmpty(player.roomId);
+    }
+
     phase = 'lobby';
     game = null;
     waitDeadline = 0;
     countdownDeadline = 0;
-    broadcast({ type: 'lobby', players: [], waitMs: null, countdownMs: null });
-    players.clear();
-    playerSockets.clear();
+    playAgainPlayers.clear();
+    clearRoomChatIfEmpty(mainRoomId);
+    updateLobby();
+    if (players.size) broadcastLobby();
 }
 
 function updateLobby() {
@@ -140,14 +205,15 @@ setInterval(() => {
         return;
     }
 
-    updateLobby();
-    if (phase === 'lobby' && performance.now() - lastLobbyBroadcast >= 250) broadcastLobby();
+    if (phase === 'lobby') {
+        updateLobby();
+        if (performance.now() - lastLobbyBroadcast >= 250) broadcastLobby();
+    }
 }, tickRate);
 
 sockets.on('connection', (socket) => {
     const connectionId = `u${nextId++}`;
     send(socket, { type: 'welcome', id: connectionId });
-    send(socket, { type: 'chatHistory', messages: chatHistory });
 
     socket.on('message', (raw) => {
         let message;
@@ -186,23 +252,52 @@ sockets.on('connection', (socket) => {
                 id: connectionId,
                 nickname,
                 color: colors[slot],
-                slot
+                slot,
+                roomId: mainRoomId
             });
             playerSockets.set(connectionId, socket);
-            send(socket, { type: 'joined', nickname });
+            const joinMessage = {
+                id: `m${nextId++}`,
+                system: true,
+                text: `${nickname} joined the room.`
+            };
+            const history = roomChat(mainRoomId);
+            history.push(joinMessage);
+            if (history.length > 60) history.shift();
+            send(socket, { type: 'joined', nickname, roomId: mainRoomId });
+            send(socket, { type: 'chatHistory', roomId: mainRoomId, messages: history });
+            sendRoom(mainRoomId, { type: 'chat', roomId: mainRoomId, message: joinMessage }, connectionId);
             updateLobby();
             broadcastLobby();
             return;
         }
 
         if (!current) return;
-        if (message.type === 'chat') {
+        if (message.type === 'playAgain' && phase === 'result' && game?.finished) {
+            if (playAgainPlayers.has(current.id)) return;
+            playAgainPlayers.add(current.id);
+            game.setInput(current.id, 0, 0);
+            broadcastPlayAgainLobby();
+            send(socket, {
+                type: 'chatHistory',
+                roomId: current.roomId,
+                messages: roomChat(current.roomId)
+            });
+            if (playAgainPlayers.size === players.size) finalizeResult();
+            return;
+        }
+
+        const canChat = phase === 'lobby' || (phase === 'result' && playAgainPlayers.has(current.id));
+        if (message.type === 'chat' && canChat) {
             const text = String(message.text || '').trim().slice(0, 180);
             if (!text) return;
 
             const chatMessage = { id: `m${nextId++}`, nickname: current.nickname, text };
-            chatHistory.push(chatMessage);
-            broadcast({ type: 'chat', message: chatMessage });
+            const history = roomChat(current.roomId);
+            history.push(chatMessage);
+            if (history.length > 60) history.shift();
+            const recipients = phase === 'lobby' ? roomPlayerIds(current.roomId) : playAgainPlayers;
+            sendToPlayers(recipients, { type: 'chat', roomId: current.roomId, message: chatMessage });
         }
         if (phase === 'game' && game?.hasPlayer(current.id)) {
             if (message.type === 'move') game.setInput(current.id, message.x, message.y);
@@ -213,8 +308,10 @@ sockets.on('connection', (socket) => {
     socket.on('close', () => {
         const player = players.get(connectionId);
         if (!player) return;
+        playAgainPlayers.delete(connectionId);
         players.delete(connectionId);
         playerSockets.delete(connectionId);
+        clearRoomChatIfEmpty(player.roomId);
         game?.removePlayer(connectionId);
         if (phase === 'lobby' && players.size < 2) {
             waitDeadline = 0;
@@ -223,6 +320,10 @@ sockets.on('connection', (socket) => {
         if (phase === 'game' && game) {
             if (game.update(0)) finishGame();
             else broadcastGame();
+        } else if (phase === 'result') {
+            if (!players.size) finalizeResult();
+            else if (playAgainPlayers.size === players.size) finalizeResult();
+            else broadcastPlayAgainLobby();
         } else {
             broadcastLobby();
         }

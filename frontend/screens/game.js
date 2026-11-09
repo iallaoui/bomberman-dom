@@ -14,10 +14,33 @@ const gameHeader = h('header', { className: 'game-header' },
     })
 );
 
-export function createGameScreen({ send, commitGame, Chat }) {
+export function createGameScreen({ send, commitGame }) {
     const physics = createGamePhysics({ send, commitGame });
     let cachedMap;
     let cachedTiles;
+    let cachedGame;
+    let cachedPlayerId;
+    let cachedPlayColumn;
+
+    const shellAttrs = {
+        className: 'game-shell',
+        tabindex: 0,
+        onKeydown: (event) => physics.handleKey(event, true),
+        onKeyup: (event) => physics.handleKey(event, false),
+        onBlur: physics.releaseMovement
+    };
+    const boardAttrs = {
+        className: 'board',
+        onClick: () => document.querySelector('.game-shell')?.focus(),
+        role: 'application',
+        'aria-label': 'Bomberman game board'
+    };
+    const playAgainAttrs = {
+        type: 'button',
+        onClick: () => send({ type: 'playAgain' }),
+        onKeydown: () => {},
+        onKeyup: () => {}
+    };
 
     function tileStyle(x, y) {
         return { left: `${x * 100 / 15}%`, top: `${y * 100 / 13}%` };
@@ -92,10 +115,12 @@ export function createGameScreen({ send, commitGame, Chat }) {
         );
     }
 
-    function render(state) {
-        const game = state.game;
-        if (!game) return h('main', { className: 'center-page' }, h('p', {}, 'Loading match…'));
-        const me = game.players[state.id];
+    function PlayColumn(game, currentPlayerId) {
+        if (game === cachedGame && currentPlayerId === cachedPlayerId) return cachedPlayColumn;
+
+        cachedGame = game;
+        cachedPlayerId = currentPlayerId;
+        const me = game.players[currentPlayerId];
         const winner = game.winner === 'draw' ? null : game.players[game.winner];
         const flameCells = new Map();
         for (const explosion of game.explosions) {
@@ -103,38 +128,32 @@ export function createGameScreen({ send, commitGame, Chat }) {
         }
         const players = Object.values(game.players);
 
-        return h('main', {
-            className: 'game-shell',
-            tabindex: 0,
-            onKeydown: (event) => physics.handleKey(event, true),
-            onKeyup: (event) => physics.handleKey(event, false),
-            onBlur: physics.releaseMovement
-        },
-            h('section', { className: 'play-column' },
-                gameHeader,
-                h('div', {
-                    className: 'board',
-                    onClick: () => document.querySelector('.game-shell')?.focus(),
-                    role: 'application',
-                    'aria-label': 'Bomberman game board'
-                },
-                    Tiles(game.map),
-                    h('div', { className: 'entities' },
-                        game.powerups.map(Powerup),
-                        game.bombs.map(Bomb),
-                        [...flameCells].map(([key, cell]) => Flame(key, cell)),
-                        players.map((player) => Player(player, game.now))
-                    )
-                ),
-                h('div', { className: 'hud' }, players.map((player) => HudPlayer(player, state.id))),
-                me && !me.active && h('p', { className: 'notice' }, 'You are out. You can still use the chat.'),
-                game.winner && h('div', { className: 'result', role: 'status' },
-                    h('h2', {}, winner ? `${winner.nickname} wins` : 'Draw'),
-                    h('p', {}, 'Returning to the waiting room…')
+        cachedPlayColumn = h('section', { className: 'play-column' },
+            gameHeader,
+            h('div', boardAttrs,
+                Tiles(game.map),
+                h('div', { className: 'entities' },
+                    game.powerups.map(Powerup),
+                    game.bombs.map(Bomb),
+                    [...flameCells].map(([key, cell]) => Flame(key, cell)),
+                    players.map((player) => Player(player, game.now))
                 )
             ),
-            Chat(state.chat)
+            h('div', { className: 'hud' }, players.map((player) => HudPlayer(player, currentPlayerId))),
+            me && !me.active && h('p', { className: 'notice' }, 'You are out.'),
+            game.winner && h('div', { className: 'result', role: 'status' },
+                h('h2', {}, winner ? `${winner.nickname} wins` : 'Draw'),
+                h('p', {}, 'Play again within 5 seconds or you will be logged out.'),
+                h('button', playAgainAttrs, 'Play again')
+            )
         );
+        return cachedPlayColumn;
+    }
+
+    function render(state) {
+        const game = state.game;
+        if (!game) return h('main', { className: 'center-page' }, h('p', {}, 'Loading match…'));
+        return h('main', shellAttrs, PlayColumn(game, state.id));
     }
 
     return {

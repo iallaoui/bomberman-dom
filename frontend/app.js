@@ -13,6 +13,7 @@ const store = createStore({
     screen: 'join',
     connected: false,
     id: null,
+    roomId: null,
     lobby: { players: [], waitMs: null, countdownMs: null },
     chat: [],
     game: null,
@@ -30,7 +31,6 @@ const Chat = createChat({ send });
 
 gameScreen = createGameScreen({
     send,
-    Chat,
     commitGame: (game) => store.setState({ screen: 'game', game })
 });
 
@@ -48,18 +48,38 @@ const router = new Router({
 
 function handleMessage(message) {
     if (message.type === 'welcome') store.setState({ id: message.id });
-    if (message.type === 'joined') store.setState({ screen: 'lobby', error: '' });
-    if (message.type === 'chatHistory') store.setState({ chat: message.messages });
+    if (message.type === 'joined') {
+        store.setState({ screen: 'lobby', roomId: message.roomId, error: '' });
+    }
+    if (message.type === 'chatHistory') {
+        const state = store.getState();
+        if (state.screen === 'lobby' && state.roomId === message.roomId) {
+            store.setState({ chat: message.messages });
+        }
+    }
     if (message.type === 'chat') {
+        const state = store.getState();
+        if (state.screen !== 'lobby' || state.roomId !== message.roomId) return;
         store.setState(({ chat }) => ({ chat: [...chat.slice(-59), message.message] }));
     }
     if (message.type === 'lobby') {
         gameScreen.reset();
         const screen = message.players.length ? 'lobby' : 'join';
-        store.setState({ screen, lobby: message, game: null });
+        store.setState({ screen, roomId: message.roomId, lobby: message, game: null });
     }
     if (message.type === 'game') gameScreen.acceptSnapshot(message.game);
     if (message.type === 'error') store.setState({ error: message.message });
+    if (message.type === 'logout') {
+        gameScreen.reset();
+        store.setState({
+            screen: 'join',
+            roomId: null,
+            lobby: { players: [], waitMs: null, countdownMs: null },
+            chat: [],
+            game: null,
+            error: message.message || 'Play again time expired.'
+        });
+    }
 }
 
 function App(state) {
