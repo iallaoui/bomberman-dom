@@ -287,7 +287,7 @@ sockets.on('connection', (socket) => {
             return;
         }
 
-        const canChat = phase === 'lobby' || (phase === 'result' && playAgainPlayers.has(current.id));
+        const canChat = phase === 'lobby' || phase === 'game' || phase === 'result';
         if (message.type === 'chat' && canChat) {
             const text = String(message.text || '').trim().slice(0, 180);
             if (!text) return;
@@ -296,7 +296,7 @@ sockets.on('connection', (socket) => {
             const history = roomChat(current.roomId);
             history.push(chatMessage);
             if (history.length > 60) history.shift();
-            const recipients = phase === 'lobby' ? roomPlayerIds(current.roomId) : playAgainPlayers;
+            const recipients = roomPlayerIds(current.roomId);
             sendToPlayers(recipients, { type: 'chat', roomId: current.roomId, message: chatMessage });
         }
         if (phase === 'game' && game?.hasPlayer(current.id)) {

@@ -6,6 +6,9 @@
 
 * { box-sizing: border-box; }
 body { margin: 0; min-width: 320px; }
+#root { min-width: 0; }
+#chat-root { min-width: 0; contain: layout paint style; }
+#chat-root:empty { display: none; }
 button, input { font: inherit; }
 button { cursor: pointer; }
 
@@ -45,6 +48,10 @@ button:disabled { cursor: default; opacity: .55; }
 .muted { color: #696969; }
 
 .lobby-page {
+    min-height: 0;
+}
+
+.screen-lobby {
     min-height: 100vh;
     display: grid;
     grid-template-columns: minmax(280px, 460px) 300px;
@@ -52,6 +59,18 @@ button:disabled { cursor: default; opacity: .55; }
     gap: 24px;
     padding: 24px;
 }
+
+.screen-game {
+    min-height: 100vh;
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) 280px;
+    gap: 12px;
+    padding: 12px;
+}
+
+.screen-game .game-shell { min-height: calc(100vh - 24px); padding: 0; }
+.screen-game #chat-root { align-self: stretch; min-height: 0; }
+.screen-game .chat { height: 100%; max-height: calc(100vh - 24px); }
 
 .lobby-panel { padding: 28px; }
 .lobby-count { margin: 18px 0 12px; }
@@ -203,7 +222,8 @@ button:disabled { cursor: default; opacity: .55; }
 .system-message { color: #666; font-style: italic; }
 
 @media (max-width: 850px) {
-    .lobby-page { grid-template-columns: minmax(0, 1fr); align-content: start; }
+    .screen-lobby, .screen-game { grid-template-columns: minmax(0, 1fr); align-content: start; }
+    .screen-game .chat { min-height: 220px; height: 260px; }
     .game-shell { grid-template-columns: 1fr; }
     .board { width: min(100%, max(280px, calc((100vh - 360px) * 15 / 13))); }
 }
@@ -212,6 +232,6 @@ button:disabled { cursor: default; opacity: .55; }
     .game-shell { padding: 6px; gap: 6px; }
     .game-header div span { display: none; }
     .hud { grid-template-columns: repeat(2, minmax(0, 1fr)); }
-    .lobby-page { padding: 12px; }
+    .screen-lobby, .screen-game { padding: 12px; }
 }
 

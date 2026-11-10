@@ -30,9 +30,7 @@ export function createChat({ send }) {
                 h('input', {
                     maxlength: 180,
                     placeholder: 'Write a message',
-                    'aria-label': 'Chat message',
-                    onKeydown: () => {},
-                    onKeyup: () => {}
+                    'aria-label': 'Chat message'
                 }),
                 h('button', { type: 'submit' }, 'Send')
             )

@@ -1,6 +1,6 @@
 import { h } from '../mini-framework/dom.js';
 
-export function Lobby(state, Chat) {
+export function Lobby(state) {
     const { players, waitMs, countdownMs } = state.lobby;
     let status = 'Waiting for at least 2 players';
     if (waitMs !== null) status = `Waiting period: ${Math.ceil(waitMs / 1000)}s`;
@@ -16,7 +16,6 @@ export function Lobby(state, Chat) {
                 player.nickname,
                 player.id === state.id && h('small', {}, 'you')
             )))
-        ),
-        Chat(state.chat)
+        )
     );
 }
